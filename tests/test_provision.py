@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -310,6 +311,59 @@ class TestPairingCommand:
         err = capsys.readouterr().err
         assert "sudo turbobond-server --pairing" in err
         assert settings.psk not in err
+
+
+class TestInstallerArguments:
+    """The reuse logic in --provision only helps if the installer lets it run.
+
+    An earlier version minted a key in the shell and always passed --psk, which
+    overrode the installed key on every re-run and unpaired every client. The
+    Python-level tests below could not see that, so the script is exercised
+    directly here.
+    """
+
+    SCRIPT = Path(__file__).resolve().parent.parent / "packaging" / "concentrator-install.sh"
+
+    def _provision_args(self, tmp_path, *args):
+        """Run the installer against a stub server and report how it was called."""
+
+        stub_dir = tmp_path / "bin"
+        stub_dir.mkdir()
+        record = tmp_path / "args"
+        stub = stub_dir / "turbobond-server"
+        stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> {record}\n')
+        stub.chmod(0o755)
+
+        # The script installs packages and writes to /etc before it gets to the
+        # provision call, so the front half is skipped and only the argument
+        # construction under test is run.
+        text = self.SCRIPT.read_text()
+        start = text.index("set -- --provision")
+        end = text.index("\n", text.index('turbobond-server "$@"'))
+
+        values = {"PSK": "", "PORT": "5310", "PUBLIC_IP": ""}
+        values.update(dict(args))
+        preamble = "".join(f"{name}='{value}'\n" for name, value in values.items())
+        body = preamble + text[start:end]
+
+        subprocess.run(
+            ["sh", "-c", body],
+            check=True,
+            env={"PATH": f"{stub_dir}:/usr/bin:/bin"},
+        )
+        return record.read_text().split()
+
+    def test_no_key_is_passed_when_none_was_asked_for(self, tmp_path):
+        assert "--psk" not in self._provision_args(tmp_path)
+
+    def test_an_explicitly_given_key_is_passed_through(self, tmp_path):
+        called = self._provision_args(tmp_path, ("PSK", "ab" * 32))
+        assert "--psk" in called
+        assert "ab" * 32 in called
+
+    def test_the_port_reaches_the_listen_address(self, tmp_path):
+        called = self._provision_args(tmp_path, ("PORT", "9999"))
+        assert "0.0.0.0:9999" in called
 
 
 class TestReprovisionKeepsTheKey:

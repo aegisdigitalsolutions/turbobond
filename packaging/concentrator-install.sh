@@ -83,9 +83,12 @@ command -v turbobond-server >/dev/null 2>&1 || {
     exit 1
 }
 
-[ -n "$PSK" ] || PSK=$(turbobond-server --gen-psk)
-
-set -- --provision --psk "$PSK" --listen "0.0.0.0:$PORT"
+# --psk is passed on only when one was asked for. Minting a key here instead
+# would override the key already installed on a re-run, and every client paired
+# against the old one would stop authenticating with no visible cause.
+# --provision generates a key when there is genuinely none to keep.
+set -- --provision --listen "0.0.0.0:$PORT"
+[ -n "$PSK" ] && set -- "$@" --psk "$PSK"
 [ -n "$PUBLIC_IP" ] && set -- "$@" --public-ip "$PUBLIC_IP"
 turbobond-server "$@"
 
