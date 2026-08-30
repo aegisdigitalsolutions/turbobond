@@ -140,6 +140,13 @@ class TestSubsystemsAfterActivation:
         status = self.supervisor.status()
         assert status["bond_mode"] in ("tunnel", "ecmp")
 
+    def test_the_reported_router_state_reflects_the_alg_being_turned_off(self) -> None:
+        """Reporting the pre-activation reading would claim SIP is still broken."""
+
+        router = self.supervisor.status()["router"]
+        assert router["model"]
+        assert router["sip_alg_enabled"] is False
+
 
 class TestLocalAggregationMode:
     async def test_without_a_concentrator_it_falls_back_to_ecmp(self, cfg: AppConfig) -> None:

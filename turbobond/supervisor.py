@@ -119,6 +119,7 @@ class Supervisor:
         self._device_task: asyncio.Task[None] | None = None
         self._last_error = ""
         self._bond_mode = "none"
+        self._router_status: dict[str, Any] = {}
 
         if cfg.dry_run:
             set_dry_run(True)
@@ -248,7 +249,12 @@ class Supervisor:
         if self.cfg.sip.enabled and self.cfg.sip.disable_alg and status.authenticated:
             with contextlib.suppress(TurboBondError):
                 await self.router.set_sip_alg(False)
+            # Read it back, so what is reported is the router as it is now
+            # rather than as it was before the app reconfigured it.
+            with contextlib.suppress(TurboBondError):
+                status = await self.router.status()
 
+        self._router_status = status.as_dict()
         self._record(
             Phase.ROUTER,
             True,
@@ -555,6 +561,9 @@ class Supervisor:
         if self.cfg.router.manage:
             with contextlib.suppress(TurboBondError):
                 self.devices.merge(await self.router.devices(), source="router")
+            # Signal strength, band and carrier all move while the bond runs.
+            with contextlib.suppress(TurboBondError):
+                self._router_status = (await self.router.status()).as_dict()
         self.devices.mark_bonded(self.active or self.phase is Phase.LAN)
 
     def _start_device_tracking(self) -> None:
@@ -646,6 +655,7 @@ class Supervisor:
             "tunnel": self.tunnel.snapshot() if self.tunnel else {"running": False, "mode": self._bond_mode},
             "shadowsocks": self.shadowsocks.snapshot(),
             "routes": self.selector.snapshot() if self.selector else {"active": self.cfg.routes.default_route},
+            "router": self._router_status,
             "sip": self.firewall.last_report.as_dict(),
             "lan": self.gateway.snapshot() if self.gateway else {"enabled": self.cfg.lan.enabled},
             "devices": self.devices.snapshot(),

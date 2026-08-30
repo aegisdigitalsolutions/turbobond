@@ -318,8 +318,12 @@ function renderLinks(status) {
 }
 
 function renderRouter(status) {
+  // Prefer the live reading; the stage record is a snapshot from activation
+  // time and would freeze signal strength and anything the app has since
+  // changed on the router.
   const routerStage = (status.stages || []).find((s) => s.phase === "router");
-  const info = routerStage && routerStage.data ? routerStage.data.status || {} : {};
+  const snapshot = routerStage && routerStage.data ? routerStage.data.status || {} : {};
+  const info = status.router && Object.keys(status.router).length ? status.router : snapshot;
   setKv("router-info", [
     ["Model", info.model || "not detected"],
     ["Firmware", info.firmware || "-"],
