@@ -13,7 +13,13 @@ attached device on the bonded path by itself.
 
 ## Install
 
+On the gateway: the Linux box between your router and your LAN, with the WAN
+uplinks attached to it. Not on the router, which runs NETGEAR's own firmware,
+and not on the concentrator, which gets its own bundle from the dashboard.
+
 ```bash
+git clone https://github.com/aegisdigitalsolutions/turbobond.git
+cd turbobond
 sudo sh packaging/install.sh
 ```
 
