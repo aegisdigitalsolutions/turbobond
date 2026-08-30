@@ -131,6 +131,86 @@ class TestFirewall:
         assert "no local firewall" in provision.open_firewall(5310)
 
 
+class TestFirewallRuleLifecycle:
+    """The unit restarts on failure, so rules must not pile up per restart."""
+
+    def _server(self):
+        from turbobond.bond.server import ConcentratorServer
+
+        return ConcentratorServer("ab" * 32, egress_interface="eth0")
+
+    def test_puts_the_table_flag_before_the_action(self):
+        """'iptables -A -t nat ...' is rejected; the table has to come first."""
+
+        from turbobond.bond.server import ConcentratorServer
+
+        cmd = ConcentratorServer._rule_command(["-t", "nat", "POSTROUTING", "-j", "MASQUERADE"], "-A")
+        assert cmd[:4] == ["iptables", "-t", "nat", "-A"]
+
+    def test_leaves_untabled_rules_alone(self):
+        from turbobond.bond.server import ConcentratorServer
+
+        cmd = ConcentratorServer._rule_command(["FORWARD", "-j", "ACCEPT"], "-D")
+        assert cmd == ["iptables", "-D", "FORWARD", "-j", "ACCEPT"]
+
+    def test_existing_rules_are_not_added_twice(self, monkeypatch):
+        from turbobond.bond import server as server_mod
+
+        calls: list[list[str]] = []
+
+        class Result:
+            ok = True
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return Result()
+
+        monkeypatch.setattr(server_mod, "run", fake_run)
+        srv = self._server()
+        srv._ensure_rule(["FORWARD", "-j", "ACCEPT"])
+
+        assert all("-A" not in cmd for cmd in calls), "rule already present was appended again"
+
+    def test_missing_rules_are_added(self, monkeypatch):
+        from turbobond.bond import server as server_mod
+
+        calls: list[list[str]] = []
+
+        class Result:
+            ok = False
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return Result()
+
+        monkeypatch.setattr(server_mod, "run", fake_run)
+        srv = self._server()
+        srv._ensure_rule(["FORWARD", "-j", "ACCEPT"])
+
+        assert any("-A" in cmd for cmd in calls)
+
+    def test_removal_deletes_every_rule_that_was_added(self, monkeypatch):
+        from turbobond.bond import server as server_mod
+
+        calls: list[list[str]] = []
+
+        class Result:
+            ok = False
+
+        monkeypatch.setattr(server_mod, "run", lambda cmd, **kw: (calls.append(cmd), Result())[1])
+        srv = self._server()
+        srv._firewall_rules = [
+            ["-t", "nat", "POSTROUTING", "-j", "MASQUERADE"],
+            ["FORWARD", "-j", "ACCEPT"],
+        ]
+
+        srv._remove_firewall_rules()
+
+        deletes = [cmd for cmd in calls if "-D" in cmd]
+        assert len(deletes) == 2
+        assert srv._firewall_rules == []
+
+
 class TestServerCli:
     def test_provision_requires_root(self, monkeypatch, capsys):
         from turbobond.bond import server

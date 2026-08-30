@@ -140,6 +140,7 @@ class ConcentratorServer:
         self._tasks: list[asyncio.Task[None]] = []
         self._stop = asyncio.Event()
         self._rejected = 0
+        self._firewall_rules: list[list[str]] = []
 
     # --------------------------------------------------------------- lifecycle
 
@@ -173,34 +174,50 @@ class ConcentratorServer:
             log.warning("no egress interface found; NAT for tunnel clients was not installed")
             return
         subnet = self.local_cidr.rsplit("/", 1)[0].rsplit(".", 1)[0] + ".0/24"
-        rules = [
-            ["iptables", "-t", "nat", "-C", "POSTROUTING", "-s", subnet, "-o", egress, "-j", "MASQUERADE"],
-            ["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", subnet, "-o", egress, "-j", "MASQUERADE"],
-        ]
-        if not run(rules[0], quiet=True, allow_missing=True).ok:
-            run(rules[1], allow_missing=True)
-        run(
-            ["iptables", "-A", "FORWARD", "-i", self.device.name, "-o", egress, "-j", "ACCEPT"],
-            quiet=True,
-            allow_missing=True,
-        )
-        run(
-            ["iptables", "-A", "FORWARD", "-i", egress, "-o", self.device.name, "-j", "ACCEPT"],
-            quiet=True,
-            allow_missing=True,
-        )
-        # The tunnel MTU is smaller than the egress MTU, so clamp TCP MSS or
-        # large flows through the bond will silently blackhole.
-        run(
+        # Every rule is recorded so stop() can take it back out again. They are
+        # also all inserted through _ensure_rule, because the unit restarts
+        # itself on failure: appending unconditionally would add another copy of
+        # each rule per restart, and a service that crash-loops would grow the
+        # chains without bound.
+        self._firewall_rules = [
+            ["-t", "nat", "POSTROUTING", "-s", subnet, "-o", egress, "-j", "MASQUERADE"],
+            ["FORWARD", "-i", self.device.name, "-o", egress, "-j", "ACCEPT"],
+            ["FORWARD", "-i", egress, "-o", self.device.name, "-j", "ACCEPT"],
+            # The tunnel MTU is smaller than the egress MTU, so clamp TCP MSS or
+            # large flows through the bond will silently blackhole.
             [
-                "iptables", "-t", "mangle", "-A", "FORWARD",
+                "-t", "mangle", "FORWARD",
                 "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN",
                 "-j", "TCPMSS", "--clamp-mss-to-pmtu",
             ],
-            quiet=True,
-            allow_missing=True,
-        )
+        ]
+        for rule in self._firewall_rules:
+            self._ensure_rule(rule)
         log.info("NAT installed: %s -> %s", subnet, egress)
+
+    @staticmethod
+    def _rule_command(rule: list[str], action: str) -> list[str]:
+        """Splice the action in after any '-t <table>' prefix, where iptables wants it."""
+
+        if rule[:1] == ["-t"]:
+            return ["iptables", *rule[:2], action, *rule[2:]]
+        return ["iptables", action, *rule]
+
+    def _ensure_rule(self, rule: list[str]) -> None:
+        if not run(self._rule_command(rule, "-C"), quiet=True, allow_missing=True).ok:
+            run(self._rule_command(rule, "-A"), quiet=True, allow_missing=True)
+
+    def _remove_firewall_rules(self) -> None:
+        """Take back the rules this process added.
+
+        Leaving NAT for the tunnel subnet in place after the concentrator has
+        stopped would quietly masquerade traffic for a tunnel that no longer
+        exists.
+        """
+
+        for rule in self._firewall_rules:
+            run(self._rule_command(rule, "-D"), quiet=True, allow_missing=True)
+        self._firewall_rules = []
 
     async def stop(self) -> None:
         self._stop.set()
@@ -213,6 +230,7 @@ class ConcentratorServer:
         if self._transport is not None:
             self._transport.close()
             self._transport = None
+        self._remove_firewall_rules()
         self.device.teardown()
         log.info("concentrator stopped")
 
