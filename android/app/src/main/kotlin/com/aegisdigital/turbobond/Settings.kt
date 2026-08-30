@@ -10,8 +10,25 @@ data class Settings(
     val psk: String = "",
     /** Where other devices reach the bond. Zero turns the proxy off. */
     val proxyPort: Int = 1080,
+    /** VPN interface MTU. */
+    val tunnelMtu: Int = 1380,
+    /** Handshake timeout before giving up. */
+    val pairTimeoutMs: Long = 20_000L,
+    /** Keepalive interval while connected. */
+    val keepaliveMs: Long = 15_000L,
+    /** Release the tunnel if nothing authenticated arrives for this long. */
+    val silenceLimitMs: Long = 75_000L,
 ) {
     val isComplete: Boolean get() = host.isNotBlank() && psk.isNotBlank() && port in 1..65535
+
+    fun normalized(): Settings = copy(
+        port = port.coerceIn(1, 65535),
+        proxyPort = proxyPort.coerceIn(0, 65535),
+        tunnelMtu = tunnelMtu.coerceIn(576, 9000),
+        pairTimeoutMs = pairTimeoutMs.coerceIn(3_000L, 120_000L),
+        keepaliveMs = keepaliveMs.coerceIn(5_000L, 60_000L),
+        silenceLimitMs = silenceLimitMs.coerceIn(15_000L, 300_000L),
+    )
 
     companion object {
         private const val FILE = "turbobond"
@@ -23,15 +40,24 @@ data class Settings(
                 port = prefs.getInt("port", 5310),
                 psk = prefs.getString("psk", "").orEmpty(),
                 proxyPort = prefs.getInt("proxyPort", 1080),
-            )
+                tunnelMtu = prefs.getInt("tunnelMtu", 1380),
+                pairTimeoutMs = prefs.getLong("pairTimeoutMs", 20_000L),
+                keepaliveMs = prefs.getLong("keepaliveMs", 15_000L),
+                silenceLimitMs = prefs.getLong("silenceLimitMs", 75_000L),
+            ).normalized()
         }
 
         fun save(context: Context, settings: Settings) {
+            val normalized = settings.normalized()
             context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
                 .putString("host", settings.host.trim())
-                .putInt("port", settings.port)
-                .putString("psk", settings.psk.trim())
-                .putInt("proxyPort", settings.proxyPort)
+                .putInt("port", normalized.port)
+                .putString("psk", normalized.psk.trim())
+                .putInt("proxyPort", normalized.proxyPort)
+                .putInt("tunnelMtu", normalized.tunnelMtu)
+                .putLong("pairTimeoutMs", normalized.pairTimeoutMs)
+                .putLong("keepaliveMs", normalized.keepaliveMs)
+                .putLong("silenceLimitMs", normalized.silenceLimitMs)
                 .apply()
         }
     }

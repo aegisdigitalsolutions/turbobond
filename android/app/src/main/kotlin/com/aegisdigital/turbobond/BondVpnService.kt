@@ -116,7 +116,7 @@ class BondVpnService : VpnService() {
             return
         }
 
-        val deadline = System.currentTimeMillis() + PAIR_TIMEOUT_MS
+        val deadline = System.currentTimeMillis() + settings.pairTimeoutMs
         val buffer = ByteArray(Protocol.MAX_DATAGRAM)
         var sawUplink = false
 
@@ -154,7 +154,7 @@ class BondVpnService : VpnService() {
         }
 
         if (!pairing.get()) return
-        Log.w(TAG, "no reply from ${settings.host}:${settings.port} in ${PAIR_TIMEOUT_MS}ms")
+        Log.w(TAG, "no reply from ${settings.host}:${settings.port} in ${settings.pairTimeoutMs}ms")
         fail(
             if (!sawUplink) "No usable network"
             else "No reply from ${settings.host}:${settings.port}",
@@ -181,7 +181,7 @@ class BondVpnService : VpnService() {
             .addRoute("0.0.0.0", 0)
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
-            .setMtu(MTU)
+            .setMtu(settings.tunnelMtu)
             .setConfigureIntent(
                 PendingIntent.getActivity(
                     this, 0, Intent(this, MainActivity::class.java),
@@ -202,10 +202,10 @@ class BondVpnService : VpnService() {
 
         val reorder = ReorderBuffer(timeoutMs = REORDER_MS)
 
-        threads += thread(name = "tbond-tun") { pumpTun(descriptor, sealer, host, settings.port) }
+        threads += thread(name = "tbond-tun") { pumpTun(descriptor, sealer, host, settings) }
         threads += thread(name = "tbond-net") { pumpNetwork(descriptor, sealer, reorder) }
-        threads += thread(name = "tbond-keepalive") { keepalive(sealer, host, settings.port) }
-        threads += thread(name = "tbond-watchdog") { watchdog() }
+        threads += thread(name = "tbond-keepalive") { keepalive(sealer, host, settings.port, settings.keepaliveMs) }
+        threads += thread(name = "tbond-watchdog") { watchdog(settings.silenceLimitMs) }
 
         startProxy(settings.proxyPort)
         onUplinksChanged()
@@ -220,15 +220,15 @@ class BondVpnService : VpnService() {
      * having it, so the bond is torn down after every link has been silent long
      * enough that it is clearly not a passing blip.
      */
-    private fun watchdog() {
+    private fun watchdog(silenceLimitMs: Long) {
         while (running.get()) {
             Thread.sleep(WATCHDOG_POLL_MS)
             if (!running.get()) return
             // Measured from the last datagram over any link, seeded at
             // establish, so links being torn down and replaced cannot leave the
             // clock stuck at zero and the tunnel up forever.
-            if (System.currentTimeMillis() - lastHeard.get() < SILENCE_LIMIT_MS) continue
-            Log.w(TAG, "no reply from the concentrator in ${SILENCE_LIMIT_MS}ms; releasing the tunnel")
+            if (System.currentTimeMillis() - lastHeard.get() < silenceLimitMs) continue
+            Log.w(TAG, "no reply from the concentrator in ${silenceLimitMs}ms; releasing the tunnel")
             fail("Server stopped responding")
             return
         }
@@ -255,9 +255,9 @@ class BondVpnService : VpnService() {
     }
 
     /** Phone to concentrator: read the TUN and spread packets across the radios. */
-    private fun pumpTun(descriptor: ParcelFileDescriptor, sealer: Sealer, host: InetAddress, port: Int) {
+    private fun pumpTun(descriptor: ParcelFileDescriptor, sealer: Sealer, host: InetAddress, settings: Settings) {
         val input = FileInputStream(descriptor.fileDescriptor)
-        val buffer = ByteArray(MTU + 128)
+        val buffer = ByteArray(settings.tunnelMtu + 128)
         var cursor = 0
 
         while (running.get()) {
@@ -278,14 +278,14 @@ class BondVpnService : VpnService() {
             // Round robin. Weighting by measured quality is what the Linux
             // client does; this keeps it simple until the app can measure.
             val uplink = links[cursor++ % links.size]
-            send(sealer, uplink, FrameType.DATA, host, port, seq, packet)
+            send(sealer, uplink, FrameType.DATA, host, settings.port, seq, packet)
 
             // Small packets are cheap to duplicate and are usually signalling,
             // where a single loss is expensive. This is what keeps a call up
             // when one radio drops a packet.
             if (packet.size <= DUPLICATE_UNDER && links.size > 1) {
                 for (other in links) {
-                    if (other !== uplink) send(sealer, other, FrameType.DATA, host, port, seq, packet)
+                    if (other !== uplink) send(sealer, other, FrameType.DATA, host, settings.port, seq, packet)
                 }
             }
         }
@@ -349,13 +349,13 @@ class BondVpnService : VpnService() {
      * this the concentrator's replies would stop reaching the phone as soon as
      * traffic went quiet.
      */
-    private fun keepalive(sealer: Sealer, host: InetAddress, port: Int) {
+    private fun keepalive(sealer: Sealer, host: InetAddress, port: Int, keepaliveMs: Long) {
         while (running.get()) {
             for (uplink in uplinkManager?.uplinks.orEmpty()) {
                 val type = if (uplink.acked) FrameType.KEEPALIVE else FrameType.HANDSHAKE
                 send(sealer, uplink, type, host, port, 0, ByteArray(0))
             }
-            Thread.sleep(KEEPALIVE_MS)
+            Thread.sleep(keepaliveMs)
         }
     }
 
@@ -441,17 +441,10 @@ class BondVpnService : VpnService() {
         private const val CHANNEL_ID = "turbobond"
         private const val NOTIFICATION_ID = 1
         private const val TUNNEL_ADDRESS = "10.77.0.2"
-        private const val MTU = 1380
         private const val REORDER_MS = 90L
-        private const val KEEPALIVE_MS = 15_000L
         private const val DUPLICATE_UNDER = 260
 
-        /** Long enough for a slow cellular radio to attach and answer once. */
-        private const val PAIR_TIMEOUT_MS = 20_000L
         private const val PAIR_POLL_MS = 250
         private const val WATCHDOG_POLL_MS = 5_000L
-
-        /** Several keepalives' worth, so a blip does not drop a working bond. */
-        private const val SILENCE_LIMIT_MS = 75_000L
     }
 }

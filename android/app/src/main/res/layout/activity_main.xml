@@ -65,6 +65,83 @@
             android:hint="@string/hint_psk"
             android:inputType="textVisiblePassword" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/advanced_heading"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/label_proxy_port" />
+
+        <EditText
+            android:id="@+id/proxyPort"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="none"
+            android:inputType="number"
+            android:text="@string/default_proxy_port" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/label_mtu" />
+
+        <EditText
+            android:id="@+id/mtu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="none"
+            android:inputType="number"
+            android:text="@string/default_mtu" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/label_pair_timeout" />
+
+        <EditText
+            android:id="@+id/pairTimeout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="none"
+            android:inputType="number"
+            android:text="@string/default_pair_timeout" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/label_keepalive" />
+
+        <EditText
+            android:id="@+id/keepalive"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="none"
+            android:inputType="number"
+            android:text="@string/default_keepalive" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/label_silence_limit" />
+
+        <EditText
+            android:id="@+id/silenceLimit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="none"
+            android:inputType="number"
+            android:text="@string/default_silence_limit" />
+
         <Button
             android:id="@+id/connect"
             android:layout_width="match_parent"

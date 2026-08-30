@@ -161,6 +161,10 @@ and pre-shared key — and press Connect. Android asks once for permission to
 create a VPN connection; that prompt is the system's, and it appears for every
 VPN app.
 
+The app also exposes advanced knobs in the main screen: proxy port, tunnel MTU,
+handshake timeout, keepalive interval, and inactivity timeout before it
+releases the tunnel.
+
 The notification shows which radios have joined: `Bonded over 2 of 2: wifi,
 cellular` means both are carrying traffic.
 

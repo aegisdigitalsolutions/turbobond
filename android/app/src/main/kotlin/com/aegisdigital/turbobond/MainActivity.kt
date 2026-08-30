@@ -22,6 +22,11 @@ class MainActivity : Activity() {
     private lateinit var host: EditText
     private lateinit var port: EditText
     private lateinit var psk: EditText
+    private lateinit var proxyPort: EditText
+    private lateinit var mtu: EditText
+    private lateinit var pairTimeout: EditText
+    private lateinit var keepalive: EditText
+    private lateinit var silenceLimit: EditText
     private lateinit var status: TextView
     private lateinit var proxy: TextView
 
@@ -43,6 +48,11 @@ class MainActivity : Activity() {
         host = findViewById(R.id.host)
         port = findViewById(R.id.port)
         psk = findViewById(R.id.psk)
+        proxyPort = findViewById(R.id.proxyPort)
+        mtu = findViewById(R.id.mtu)
+        pairTimeout = findViewById(R.id.pairTimeout)
+        keepalive = findViewById(R.id.keepalive)
+        silenceLimit = findViewById(R.id.silenceLimit)
         status = findViewById(R.id.status)
         proxy = findViewById(R.id.proxy)
 
@@ -50,6 +60,11 @@ class MainActivity : Activity() {
         host.setText(saved.host)
         port.setText(saved.port.toString())
         psk.setText(saved.psk)
+        proxyPort.setText(saved.proxyPort.toString())
+        mtu.setText(saved.tunnelMtu.toString())
+        pairTimeout.setText((saved.pairTimeoutMs / 1000L).toString())
+        keepalive.setText((saved.keepaliveMs / 1000L).toString())
+        silenceLimit.setText((saved.silenceLimitMs / 1000L).toString())
         status.text = Status.latest
         showProxy()
 
@@ -92,7 +107,12 @@ class MainActivity : Activity() {
             host = host.text.toString().trim(),
             port = port.text.toString().trim().toIntOrNull() ?: 0,
             psk = psk.text.toString().trim(),
-        )
+            proxyPort = proxyPort.text.toString().trim().toIntOrNull() ?: 1080,
+            tunnelMtu = mtu.text.toString().trim().toIntOrNull() ?: 1380,
+            pairTimeoutMs = (pairTimeout.text.toString().trim().toLongOrNull() ?: 20L) * 1000L,
+            keepaliveMs = (keepalive.text.toString().trim().toLongOrNull() ?: 15L) * 1000L,
+            silenceLimitMs = (silenceLimit.text.toString().trim().toLongOrNull() ?: 75L) * 1000L,
+        ).normalized()
         if (!settings.isComplete) {
             Toast.makeText(this, "Enter the host, port and key from the server", Toast.LENGTH_LONG).show()
             return
@@ -116,8 +136,9 @@ class MainActivity : Activity() {
             status.text = "Permission refused"
             return
         }
+        val effective = Settings.load(this)
         startService(Intent(this, BondVpnService::class.java))
-        status.text = "Starting..."
+        status.text = "Starting ${effective.host}:${effective.port} (MTU ${effective.tunnelMtu})..."
     }
 
     companion object {
