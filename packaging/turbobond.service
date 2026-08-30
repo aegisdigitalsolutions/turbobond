@@ -12,6 +12,9 @@ RestartSec=3
 # Routing, nftables, TUN and sysctl writes all need real privileges.
 User=root
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
+# One socket per uplink per session, plus the LAN's conntrack entries.
+LimitNOFILE=131072
 StateDirectory=turbobond
 ConfigurationDirectory=turbobond
 ConfigurationDirectoryMode=0750

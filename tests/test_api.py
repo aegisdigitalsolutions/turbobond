@@ -237,6 +237,25 @@ class TestDownloads:
         assert "TURBOBOND_PSK=" in body
         assert "turbobond-server" in body
 
+    def test_the_bundle_tunes_the_kernel_it_is_installed_on(self, signed_in: TestClient) -> None:
+        """The far end absorbs every uplink at once; stock limits are too small."""
+
+        response = signed_in.get("/api/download/concentrator")
+        with tarfile.open(fileobj=io.BytesIO(response.content), mode="r:gz") as tar:
+            script = tar.extractfile("turbobond-concentrator/install.sh")
+            assert script is not None
+            body = script.read().decode()
+
+        assert "/etc/sysctl.d/99-turbobond-concentrator.conf" in body
+        for setting in (
+            "net.ipv4.ip_forward = 1",
+            "net.core.netdev_max_backlog",
+            "net.ipv4.tcp_congestion_control = bbr",
+            "net.ipv4.tcp_slow_start_after_idle = 0",
+            "net.netfilter.nf_conntrack_max",
+        ):
+            assert setting in body
+
     def test_the_bundle_generates_a_key_when_none_exists(self, signed_in: TestClient, cfg: AppConfig) -> None:
         assert cfg.concentrator.psk_hex == ""
         signed_in.get("/api/download/concentrator")

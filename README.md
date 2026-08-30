@@ -84,6 +84,14 @@ tar xzf turbobond-concentrator.tar.gz
 cd turbobond-concentrator && sudo sh install.sh
 ```
 
+That installer also tunes the VPS for the job, in a
+`/etc/sysctl.d/99-turbobond-concentrator.conf` drop-in that survives reboots:
+forwarding, socket buffers sized to match the client's so neither end caps the
+window, a deep netdev backlog because every uplink lands in one queue there,
+BBR with `fq` (return traffic is paced from this side, so this is what sets
+download throughput), no slow start after idle, and a conntrack table sized for
+NATing a whole LAN.
+
 Link weights follow measured quality: capacity, latency, jitter, and loss, with
 metered links (cellular) penalised so they carry overflow rather than baseline.
 A link that fails its probes is drained and the traffic redistributes; when it

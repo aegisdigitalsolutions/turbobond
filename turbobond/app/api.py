@@ -524,13 +524,55 @@ python3 -m pip install --break-system-packages --upgrade turbobond 2>/dev/null \
     || python3 -m pip install --upgrade turbobond
 
 modprobe tun || true
+
+# Kernel tuning. The concentrator terminates every uplink at once and NATs the
+# client's whole LAN, so the defaults are sized well below what it has to
+# absorb. Written as a drop-in so it survives reboots.
+cat > /etc/sysctl.d/99-turbobond-concentrator.conf <<'SYSCTL'
+# Forward the tunnel's traffic out to the internet.
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+net.ipv6.conf.default.forwarding = 1
+
+# Socket buffers sized to match the client's, so neither end caps the window.
+net.core.rmem_max = 33554432
+net.core.wmem_max = 33554432
+net.ipv4.tcp_rmem = 4096 262144 33554432
+net.ipv4.tcp_wmem = 4096 262144 33554432
+
+# Every uplink delivers into one NIC queue here, so the backlog has to be deep
+# enough that reassembly is never what drops a packet.
+net.core.netdev_max_backlog = 10000
+net.core.somaxconn = 4096
+
+# BBR on this side is what sets download throughput: return traffic is paced
+# from here, across all of the client's links.
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+
+# Recycle TIME_WAIT quickly and keep long-lived streams from re-entering slow
+# start every time they idle - which voice does constantly.
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_mtu_probing = 1
+
+# NAT for a whole LAN behind the bond needs a far bigger table than the default.
+net.netfilter.nf_conntrack_max = 262144
+SYSCTL
+
+modprobe nf_conntrack 2>/dev/null || true
+sysctl --system >/dev/null || true
+
 install -m 0644 turbobond-concentrator.service /etc/systemd/system/turbobond-concentrator.service
 systemctl daemon-reload
 systemctl enable --now turbobond-concentrator
+sleep 2
+systemctl --no-pager --lines=0 status turbobond-concentrator || true
 
 echo
 echo "Concentrator running on UDP {port}."
 echo "Open that port in your provider's firewall, then activate the client."
+echo "Logs: journalctl -u turbobond-concentrator -f"
 """
 
     service = f"""[Unit]
@@ -550,6 +592,7 @@ ExecStart=/usr/local/bin/turbobond-server \\
 Restart=always
 RestartSec=3
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 LimitNOFILE=131072
 
 [Install]
@@ -575,6 +618,16 @@ Copy this directory to a VPS with a public IP and run:
 - NATs them out to the internet
 - spreads return traffic back across the same uplinks, which is what makes
   download aggregation work
+- tunes the kernel for the job: BBR, deep buffers and backlog, a conntrack
+  table sized for a whole LAN, and no slow start after idle
+
+The tuning is written to `/etc/sysctl.d/99-turbobond-concentrator.conf`, so it
+survives reboots and applies before the service starts.
+
+## Checking on it
+
+    systemctl status turbobond-concentrator
+    journalctl -u turbobond-concentrator -f
 
 ## Firewall
 
