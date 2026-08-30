@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>turbobond</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <!-- Sign-in is the only thing the user has to do. -->
+    <section id="signin-view" class="view signin-view">
+      <form id="signin-form" class="card signin-card" autocomplete="on">
+        <header class="signin-head">
+          <div class="mark" aria-hidden="true">
+            <span class="mark-bar"></span><span class="mark-bar"></span><span class="mark-bar"></span>
+          </div>
+          <h1>turbobond</h1>
+          <p id="signin-subtitle" class="muted">Sign in. Everything else is automatic.</p>
+        </header>
+
+        <label class="field">
+          <span>Username</span>
+          <input id="username" name="username" type="text" value="admin" autocomplete="username" required />
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <input id="password" name="password" type="password" autocomplete="current-password" required
+                 minlength="8" placeholder="At least 8 characters" />
+        </label>
+
+        <details id="first-run" class="advanced">
+          <summary>Connection details</summary>
+          <p class="hint">
+            Only needed once. Leave anything blank and that feature stays off until you fill it in.
+          </p>
+
+          <fieldset>
+            <legend>Router web administrator</legend>
+            <label class="field">
+              <span>Address</span>
+              <input id="router-host" type="text" placeholder="192.168.1.1" />
+            </label>
+            <label class="field">
+              <span>Admin password</span>
+              <input id="router-password" type="password" autocomplete="off"
+                     placeholder="Lets the app configure the router itself" />
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Bonding concentrator</legend>
+            <p class="hint">
+              The far end of the bond. Without it, uplinks are balanced per connection
+              instead of per packet. Download the installer after signing in.
+            </p>
+            <label class="field">
+              <span>Host</span>
+              <input id="concentrator-host" type="text" placeholder="vps.example.com" />
+            </label>
+            <label class="field">
+              <span>Port</span>
+              <input id="concentrator-port" type="number" placeholder="5310" min="1" max="65535" />
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Shadowsocks (second route)</legend>
+            <label class="field">
+              <span>Server</span>
+              <input id="ss-host" type="text" placeholder="ss.example.com" />
+            </label>
+            <label class="field">
+              <span>Port</span>
+              <input id="ss-port" type="number" placeholder="8388" min="1" max="65535" />
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input id="ss-password" type="password" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>Cipher</span>
+              <select id="ss-method">
+                <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</option>
+                <option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</option>
+                <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+                <option value="aes-256-gcm">aes-256-gcm</option>
+              </select>
+            </label>
+          </fieldset>
+        </details>
+
+        <p id="signin-error" class="error" role="alert" hidden></p>
+        <button id="signin-button" type="submit" class="primary">Sign in and activate</button>
+        <p class="muted tiny">turbobond <span id="version"></span></p>
+      </form>
+    </section>
+
+    <!-- Activation progress. -->
+    <section id="activating-view" class="view activating-view" hidden>
+      <div class="card activating-card">
+        <h2 id="activating-phase">Starting up</h2>
+        <p id="activating-message" class="muted">Checking dependencies</p>
+        <div class="progress"><div id="progress-bar" class="progress-bar"></div></div>
+        <ol id="stage-list" class="stage-list"></ol>
+      </div>
+    </section>
+
+    <!-- Dashboard. -->
+    <section id="dashboard-view" class="view dashboard" hidden>
+      <header class="topbar">
+        <div class="brand">
+          <div class="mark small" aria-hidden="true">
+            <span class="mark-bar"></span><span class="mark-bar"></span><span class="mark-bar"></span>
+          </div>
+          <strong>turbobond</strong>
+          <span id="phase-pill" class="pill">idle</span>
+        </div>
+        <nav class="topbar-actions">
+          <button id="reactivate" class="ghost" type="button">Re-run activation</button>
+          <button id="deactivate" class="ghost danger" type="button">Deactivate</button>
+          <button id="signout" class="ghost" type="button">Sign out</button>
+        </nav>
+      </header>
+
+      <main class="grid">
+        <article class="card span-2">
+          <h3>Bond</h3>
+          <div class="metrics">
+            <div class="metric">
+              <span class="metric-value" id="metric-uplinks">0</span>
+              <span class="metric-label">uplinks bonded</span>
+            </div>
+            <div class="metric">
+              <span class="metric-value" id="metric-down">0</span>
+              <span class="metric-label">Mbps down (aggregate)</span>
+            </div>
+            <div class="metric">
+              <span class="metric-value" id="metric-up">0</span>
+              <span class="metric-label">Mbps up (aggregate)</span>
+            </div>
+            <div class="metric">
+              <span class="metric-value" id="metric-mode">-</span>
+              <span class="metric-label">aggregation mode</span>
+            </div>
+          </div>
+          <p id="bond-note" class="hint" hidden></p>
+        </article>
+
+        <article class="card">
+          <h3>Route</h3>
+          <div id="route-switch" class="route-switch"></div>
+          <p id="route-detail" class="muted tiny"></p>
+        </article>
+
+        <article class="card span-2">
+          <h3>Uplinks</h3>
+          <table class="table">
+            <thead>
+              <tr><th>Link</th><th>State</th><th>RTT</th><th>Loss</th><th>Share</th><th>Down/Up</th></tr>
+            </thead>
+            <tbody id="links-body"></tbody>
+          </table>
+        </article>
+
+        <article class="card">
+          <h3>Router</h3>
+          <dl id="router-info" class="kv"></dl>
+        </article>
+
+        <article class="card">
+          <h3>Voice (SIP)</h3>
+          <dl id="sip-info" class="kv"></dl>
+        </article>
+
+        <article class="card span-2">
+          <h3>Devices on the bond</h3>
+          <table class="table">
+            <thead>
+              <tr><th>Device</th><th>Address</th><th>Link</th><th>Route</th><th>Status</th></tr>
+            </thead>
+            <tbody id="devices-body"></tbody>
+          </table>
+        </article>
+
+        <article class="card">
+          <h3>Downloads</h3>
+          <p class="hint">The concentrator bundle is pre-paired with this install's key.</p>
+          <div class="downloads">
+            <a class="ghost" href="/api/download/concentrator">Concentrator installer</a>
+            <a class="ghost" href="/api/download/config">Configuration</a>
+            <a class="ghost" href="/api/download/diagnostics">Diagnostics</a>
+          </div>
+        </article>
+
+        <article class="card span-2">
+          <h3>Activation</h3>
+          <p id="activation-summary" class="muted tiny"></p>
+          <ol id="dashboard-stage-list" class="stage-list"></ol>
+        </article>
+
+        <article class="card span-3">
+          <h3>Activity</h3>
+          <pre id="log-view" class="log"></pre>
+        </article>
+      </main>
+    </section>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
