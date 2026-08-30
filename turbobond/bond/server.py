@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from turbobond.bond import provision
 from turbobond.bond.protocol import (
     MAX_DATAGRAM,
     FrameType,
@@ -139,6 +140,7 @@ class ConcentratorServer:
         self._tasks: list[asyncio.Task[None]] = []
         self._stop = asyncio.Event()
         self._rejected = 0
+        self._firewall_rules: list[list[str]] = []
 
     # --------------------------------------------------------------- lifecycle
 
@@ -172,34 +174,50 @@ class ConcentratorServer:
             log.warning("no egress interface found; NAT for tunnel clients was not installed")
             return
         subnet = self.local_cidr.rsplit("/", 1)[0].rsplit(".", 1)[0] + ".0/24"
-        rules = [
-            ["iptables", "-t", "nat", "-C", "POSTROUTING", "-s", subnet, "-o", egress, "-j", "MASQUERADE"],
-            ["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", subnet, "-o", egress, "-j", "MASQUERADE"],
-        ]
-        if not run(rules[0], quiet=True, allow_missing=True).ok:
-            run(rules[1], allow_missing=True)
-        run(
-            ["iptables", "-A", "FORWARD", "-i", self.device.name, "-o", egress, "-j", "ACCEPT"],
-            quiet=True,
-            allow_missing=True,
-        )
-        run(
-            ["iptables", "-A", "FORWARD", "-i", egress, "-o", self.device.name, "-j", "ACCEPT"],
-            quiet=True,
-            allow_missing=True,
-        )
-        # The tunnel MTU is smaller than the egress MTU, so clamp TCP MSS or
-        # large flows through the bond will silently blackhole.
-        run(
+        # Every rule is recorded so stop() can take it back out again. They are
+        # also all inserted through _ensure_rule, because the unit restarts
+        # itself on failure: appending unconditionally would add another copy of
+        # each rule per restart, and a service that crash-loops would grow the
+        # chains without bound.
+        self._firewall_rules = [
+            ["-t", "nat", "POSTROUTING", "-s", subnet, "-o", egress, "-j", "MASQUERADE"],
+            ["FORWARD", "-i", self.device.name, "-o", egress, "-j", "ACCEPT"],
+            ["FORWARD", "-i", egress, "-o", self.device.name, "-j", "ACCEPT"],
+            # The tunnel MTU is smaller than the egress MTU, so clamp TCP MSS or
+            # large flows through the bond will silently blackhole.
             [
-                "iptables", "-t", "mangle", "-A", "FORWARD",
+                "-t", "mangle", "FORWARD",
                 "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN",
                 "-j", "TCPMSS", "--clamp-mss-to-pmtu",
             ],
-            quiet=True,
-            allow_missing=True,
-        )
+        ]
+        for rule in self._firewall_rules:
+            self._ensure_rule(rule)
         log.info("NAT installed: %s -> %s", subnet, egress)
+
+    @staticmethod
+    def _rule_command(rule: list[str], action: str) -> list[str]:
+        """Splice the action in after any '-t <table>' prefix, where iptables wants it."""
+
+        if rule[:1] == ["-t"]:
+            return ["iptables", *rule[:2], action, *rule[2:]]
+        return ["iptables", action, *rule]
+
+    def _ensure_rule(self, rule: list[str]) -> None:
+        if not run(self._rule_command(rule, "-C"), quiet=True, allow_missing=True).ok:
+            run(self._rule_command(rule, "-A"), quiet=True, allow_missing=True)
+
+    def _remove_firewall_rules(self) -> None:
+        """Take back the rules this process added.
+
+        Leaving NAT for the tunnel subnet in place after the concentrator has
+        stopped would quietly masquerade traffic for a tunnel that no longer
+        exists.
+        """
+
+        for rule in self._firewall_rules:
+            run(self._rule_command(rule, "-D"), quiet=True, allow_missing=True)
+        self._firewall_rules = []
 
     async def stop(self) -> None:
         self._stop.set()
@@ -212,6 +230,7 @@ class ConcentratorServer:
         if self._transport is not None:
             self._transport.close()
             self._transport = None
+        self._remove_firewall_rules()
         self.device.teardown()
         log.info("concentrator stopped")
 
@@ -403,8 +422,42 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--egress", default="", help="egress interface (default: autodetect)")
     parser.add_argument("--reorder-ms", type=float, default=90.0, help="reorder hold time in milliseconds")
     parser.add_argument("--gen-psk", action="store_true", help="print a fresh pre-shared key and exit")
+    parser.add_argument(
+        "--provision",
+        action="store_true",
+        help="install the tuning and systemd service on this host, then print the pairing details",
+    )
+    parser.add_argument(
+        "--public-ip",
+        default="",
+        help="address clients dial for --provision (default: autodetect)",
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
+
+
+def _provision(args: argparse.Namespace) -> int:
+    """Stand the concentrator up on this host and say how to pair with it."""
+
+    if not provision.is_root():
+        print("error: --provision needs root.", file=sys.stderr)
+        return 2
+
+    psk = args.psk or generate_psk()
+    settings = provision.ConcentratorSettings(
+        psk=psk,
+        port=int(args.listen.rpartition(":")[2] or 5310),
+        server_ip=args.local_cidr.split("/")[0],
+        peer_ip=args.peer_ip,
+        mtu=args.mtu,
+        reorder_ms=args.reorder_ms,
+    )
+
+    for step in provision.provision_host(settings):
+        print(f"  {step}")
+    print(f"  {provision.open_firewall(settings.port)}")
+    print(provision.pairing_summary(settings, args.public_ip or provision.detect_public_ip()))
+    return 0
 
 
 async def _serve(args: argparse.Namespace) -> int:
@@ -439,6 +492,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.gen_psk:
         print(generate_psk())
         return 0
+    if args.provision:
+        return _provision(args)
     if not args.psk:
         print("error: --psk is required (or set TURBOBOND_PSK). Use --gen-psk to create one.", file=sys.stderr)
         return 2
