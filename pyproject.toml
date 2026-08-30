@@ -41,7 +41,9 @@ turbobond = "turbobond.cli:main"
 turbobond-server = "turbobond.bond.server:main"
 
 [project.urls]
-Homepage = "https://github.com/pop3crackle/turbobond"
+Homepage = "https://github.com/aegisdigitalsolutions/turbobond"
+Source = "https://github.com/aegisdigitalsolutions/turbobond"
+Issues = "https://github.com/aegisdigitalsolutions/turbobond/issues"
 
 [tool.setuptools.packages.find]
 include = ["turbobond*"]

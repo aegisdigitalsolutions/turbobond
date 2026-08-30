@@ -1,6 +1,6 @@
 [Unit]
 Description=turbobond multi-WAN bonding gateway
-Documentation=https://github.com/pop3crackle/turbobond
+Documentation=https://github.com/aegisdigitalsolutions/turbobond
 After=network-online.target
 Wants=network-online.target
 
