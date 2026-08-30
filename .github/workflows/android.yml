@@ -57,13 +57,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk turbobond.apk
-          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest turbobond.apk \
-            --title "turbobond for Android (latest build)" \
-            --notes "Built from ${{ github.sha }}.
+          NOTES="Built from ${{ github.sha }}.
 
           Download \`turbobond.apk\` below and open it on the phone. Android
           will ask you to allow installing from unknown sources.
 
           Signed with the standard Android debug key, which is enough to
           sideload but not to publish."
+
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest turbobond.apk --clobber
+            gh release edit latest \
+              --title "turbobond for Android (latest build)" \
+              --notes "$NOTES"
+          else
+            gh release create latest turbobond.apk \
+              --title "turbobond for Android (latest build)" \
+              --notes "$NOTES"
+          fi
