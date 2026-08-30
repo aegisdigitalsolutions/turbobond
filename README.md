@@ -246,6 +246,34 @@ BBR with `fq` (return traffic is paced from this side, so this is what sets
 download throughput), no slow start after idle, and a conntrack table sized for
 NATing a whole LAN.
 
+If you lose the pairing values, read them back with `sudo turbobond-server
+--pairing`. The `sudo` is required: the unit holds the key and is mode 0600.
+Do not reinstall to recover them — the installer keeps an existing key, but
+reaching for `--psk` at that point is how people unpair their clients.
+
+### Sharing the server with other services
+
+The concentrator is a UDP forwarder and spends most of its time idle, so it
+coexists with other services. On one vCPU, though, it competes with anything
+latency-sensitive during traffic bursts, and RTP is exactly that: SIP audio
+degrades audibly under a few milliseconds of scheduling delay. To keep it out
+of the way of an Asterisk on the same box, give it a lower share of the CPU
+under contention:
+
+```bash
+sudo mkdir -p /etc/systemd/system/turbobond-concentrator.service.d
+sudo tee /etc/systemd/system/turbobond-concentrator.service.d/cpu.conf >/dev/null <<'EOF'
+[Service]
+CPUWeight=40
+EOF
+sudo systemctl daemon-reload && sudo systemctl restart turbobond-concentrator
+```
+
+`CPUWeight` is a share, not a cap, so the concentrator still uses the whole
+core when nothing else wants it and yields when Asterisk does. A drop-in is
+also the right place for this: the installer rewrites the main unit file but
+leaves the `.d` directory alone, so the setting survives a reinstall.
+
 Check on it with `systemctl status turbobond-concentrator` and
 `journalctl -u turbobond-concentrator -f`. A gateway that pairs successfully
 logs `new bonded session`, then one `uplink N joined` line per link — that
@@ -345,7 +373,7 @@ generated firewall ruleset into one file.
 
 ```bash
 pip install -e '.[dev]'
-pytest        # 287 tests, no privileges needed
+pytest        # 298 tests, no privileges needed
 ruff check .
 ```
 

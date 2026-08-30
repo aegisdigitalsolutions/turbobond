@@ -126,10 +126,17 @@ def installed_settings() -> ConcentratorSettings | None:
     The key is generated on the host and never leaves it, so the unit is the
     only copy. Reading it back is what lets the values be shown again without
     regenerating them, which would silently unpair every client.
+
+    Raises PermissionError when the unit exists but is unreadable, rather than
+    reporting it as absent: the unit is mode 0600, so an unprivileged read is
+    the common case, and "not installed" would send the caller off to reinstall
+    when all they needed was sudo.
     """
 
     try:
         text = UNIT_PATH.read_text()
+    except PermissionError:
+        raise
     except OSError:
         return None
 

@@ -450,7 +450,18 @@ def _provision(args: argparse.Namespace) -> int:
 
     # Re-running the installer must not unpair the clients that are already
     # configured, so an existing key is kept unless one is given explicitly.
-    existing = provision.installed_settings()
+    # An unreadable unit is not treated as an absent one: that would mint a new
+    # key and silently unpair every client, where stopping is recoverable.
+    try:
+        existing = provision.installed_settings()
+    except PermissionError:
+        print(
+            f"error: {provision.UNIT_PATH} exists but could not be read, so the key "
+            "already in use cannot be preserved. Re-run as root, or pass --psk to "
+            "set the key explicitly.",
+            file=sys.stderr,
+        )
+        return 1
     psk = args.psk or (existing.psk if existing else "") or generate_psk()
     if existing and psk == existing.psk and not args.psk:
         print("  keeping the key already installed here")
@@ -504,7 +515,15 @@ def main(argv: list[str] | None = None) -> int:
         print(generate_psk())
         return 0
     if args.pairing:
-        settings = provision.installed_settings()
+        try:
+            settings = provision.installed_settings()
+        except PermissionError:
+            print(
+                "error: the concentrator's service file is readable only by root, "
+                "because it holds the key. Re-run this as: sudo turbobond-server --pairing",
+                file=sys.stderr,
+            )
+            return 1
         if settings is None:
             print(
                 "error: no installed concentrator found. Run the installer first.",
