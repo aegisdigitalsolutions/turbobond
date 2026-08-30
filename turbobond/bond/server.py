@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from turbobond.bond import provision
 from turbobond.bond.protocol import (
     MAX_DATAGRAM,
     FrameType,
@@ -403,8 +404,42 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--egress", default="", help="egress interface (default: autodetect)")
     parser.add_argument("--reorder-ms", type=float, default=90.0, help="reorder hold time in milliseconds")
     parser.add_argument("--gen-psk", action="store_true", help="print a fresh pre-shared key and exit")
+    parser.add_argument(
+        "--provision",
+        action="store_true",
+        help="install the tuning and systemd service on this host, then print the pairing details",
+    )
+    parser.add_argument(
+        "--public-ip",
+        default="",
+        help="address clients dial for --provision (default: autodetect)",
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
+
+
+def _provision(args: argparse.Namespace) -> int:
+    """Stand the concentrator up on this host and say how to pair with it."""
+
+    if not provision.is_root():
+        print("error: --provision needs root.", file=sys.stderr)
+        return 2
+
+    psk = args.psk or generate_psk()
+    settings = provision.ConcentratorSettings(
+        psk=psk,
+        port=int(args.listen.rpartition(":")[2] or 5310),
+        server_ip=args.local_cidr.split("/")[0],
+        peer_ip=args.peer_ip,
+        mtu=args.mtu,
+        reorder_ms=args.reorder_ms,
+    )
+
+    for step in provision.provision_host(settings):
+        print(f"  {step}")
+    print(f"  {provision.open_firewall(settings.port)}")
+    print(provision.pairing_summary(settings, args.public_ip or provision.detect_public_ip()))
+    return 0
 
 
 async def _serve(args: argparse.Namespace) -> int:
@@ -439,6 +474,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.gen_psk:
         print(generate_psk())
         return 0
+    if args.provision:
+        return _provision(args)
     if not args.psk:
         print("error: --psk is required (or set TURBOBOND_PSK). Use --gen-psk to create one.", file=sys.stderr)
         return 2

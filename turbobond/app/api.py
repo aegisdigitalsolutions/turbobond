@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from turbobond.app.activation import ActivationController
 from turbobond.app.auth import CSRF_HEADER, SESSION_COOKIE, AuthManager, Session
+from turbobond.bond import provision
 from turbobond.config import AppConfig, load_config, save_config
 from turbobond.errors import AuthError, TurboBondError
 from turbobond.logging_setup import configure as configure_logging
@@ -496,9 +497,8 @@ def _deep_merge(target: dict[str, Any], patch: dict[str, Any]) -> None:
             target[key] = value
 
 
-#: Everything the server half imports. The web app's dependencies are not
-#: among them, so the concentrator host does not have to carry them.
-CONCENTRATOR_REQUIREMENTS = ("cryptography>=42", "pydantic>=2.6", "PyYAML>=6")
+#: Re-exported so the bundle and the standalone installer pin the same set.
+CONCENTRATOR_REQUIREMENTS = provision.CONCENTRATOR_REQUIREMENTS
 
 
 def _package_sources() -> dict[str, str]:
@@ -529,6 +529,14 @@ def _concentrator_bundle(cfg: AppConfig) -> dict[str, str]:
     port = cfg.concentrator.port
     peer_ip = cfg.concentrator.tunnel_ip_local.split("/")[0]
     server_ip = cfg.concentrator.tunnel_ip_remote
+    settings = provision.ConcentratorSettings(
+        psk=psk,
+        port=port,
+        server_ip=server_ip,
+        peer_ip=peer_ip,
+        mtu=cfg.concentrator.tunnel_mtu,
+        reorder_ms=cfg.concentrator.reorder_timeout_ms,
+    )
 
     install_sh = f"""#!/bin/sh
 # turbobond concentrator installer.
@@ -582,37 +590,8 @@ modprobe tun || true
 # Kernel tuning. The concentrator terminates every uplink at once and NATs the
 # client's whole LAN, so the defaults are sized well below what it has to
 # absorb. Written as a drop-in so it survives reboots.
-cat > /etc/sysctl.d/99-turbobond-concentrator.conf <<'SYSCTL'
-# Forward the tunnel's traffic out to the internet.
-net.ipv4.ip_forward = 1
-net.ipv6.conf.all.forwarding = 1
-net.ipv6.conf.default.forwarding = 1
-
-# Socket buffers sized to match the client's, so neither end caps the window.
-net.core.rmem_max = 33554432
-net.core.wmem_max = 33554432
-net.ipv4.tcp_rmem = 4096 262144 33554432
-net.ipv4.tcp_wmem = 4096 262144 33554432
-
-# Every uplink delivers into one NIC queue here, so the backlog has to be deep
-# enough that reassembly is never what drops a packet.
-net.core.netdev_max_backlog = 10000
-net.core.somaxconn = 4096
-
-# BBR on this side is what sets download throughput: return traffic is paced
-# from here, across all of the client's links.
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-
-# Recycle TIME_WAIT quickly and keep long-lived streams from re-entering slow
-# start every time they idle - which voice does constantly.
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.tcp_mtu_probing = 1
-
-# NAT for a whole LAN behind the bond needs a far bigger table than the default.
-net.netfilter.nf_conntrack_max = 262144
-SYSCTL
+cat > {provision.SYSCTL_PATH} <<'SYSCTL'
+{provision.SYSCTL_DROP_IN}SYSCTL
 
 modprobe nf_conntrack 2>/dev/null || true
 sysctl --system >/dev/null || true
@@ -629,29 +608,7 @@ echo "Open that port in your provider's firewall, then activate the client."
 echo "Logs: journalctl -u turbobond-concentrator -f"
 """
 
-    service = f"""[Unit]
-Description=turbobond bonding concentrator
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-Environment=TURBOBOND_PSK={psk}
-ExecStart=/usr/local/bin/turbobond-server \\
-    --listen 0.0.0.0:{port} \\
-    --local-cidr {server_ip}/30 \\
-    --peer-ip {peer_ip} \\
-    --mtu {cfg.concentrator.tunnel_mtu} \\
-    --reorder-ms {cfg.concentrator.reorder_timeout_ms}
-Restart=always
-RestartSec=3
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
-LimitNOFILE=131072
-
-[Install]
-WantedBy=multi-user.target
-"""
+    service = settings.unit_text()
 
     readme = f"""# turbobond concentrator
 
