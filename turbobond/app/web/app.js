@@ -170,18 +170,40 @@ function followActivation() {
 }
 
 function renderStages(stages) {
-  const list = $("stage-list");
-  list.innerHTML = "";
-  for (const stage of stages || []) {
-    const item = document.createElement("li");
-    const failed = !stage.ok;
-    item.className = failed ? "failed" : stage.degraded ? "degraded" : "ok";
-    item.innerHTML =
-      `<span class="stage-icon">${failed ? "x" : stage.degraded ? "!" : "+"}</span>` +
-      `<span class="stage-phase">${escapeHtml(titleCase(stage.phase))}</span>` +
-      `<span>${escapeHtml(stage.detail || "")}</span>`;
-    list.appendChild(item);
+  // Both lists: the one on the progress screen while activating, and the one
+  // on the dashboard, which is where the result stays readable afterwards.
+  for (const id of ["stage-list", "dashboard-stage-list"]) {
+    const list = $(id);
+    if (!list) continue;
+    list.innerHTML = "";
+    for (const stage of stages || []) {
+      const item = document.createElement("li");
+      const failed = !stage.ok;
+      item.className = failed ? "failed" : stage.degraded ? "degraded" : "ok";
+      item.innerHTML =
+        `<span class="stage-icon">${failed ? "x" : stage.degraded ? "!" : "+"}</span>` +
+        `<span class="stage-phase">${escapeHtml(titleCase(stage.phase))}</span>` +
+        `<span>${escapeHtml(stage.detail || "")}</span>`;
+      list.appendChild(item);
+    }
   }
+}
+
+function renderActivationSummary(status) {
+  const summary = $("activation-summary");
+  if (!summary) return;
+  const stages = status.stages || [];
+  if (!stages.length) {
+    summary.textContent = "Not activated yet.";
+    return;
+  }
+  const failed = stages.filter((s) => !s.ok).length;
+  const degraded = stages.filter((s) => s.ok && s.degraded).length;
+  const clean = stages.length - failed - degraded;
+  summary.textContent =
+    `${clean} of ${stages.length} stages clean` +
+    (degraded ? `, ${degraded} degraded` : "") +
+    (failed ? `, ${failed} failed` : "");
 }
 
 // ---------------------------------------------------------------- dashboard
@@ -217,6 +239,7 @@ async function refresh() {
   renderSip(status);
   renderDevices(status);
   renderStages(status.stages);
+  renderActivationSummary(status);
   refreshLogs();
 }
 
