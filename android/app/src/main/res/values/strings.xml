@@ -10,5 +10,7 @@
     <string name="hint_psk">the hex key the installer printed</string>
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
-    <string name="tethering_note">This covers traffic from this phone only. Android forwards hotspot and USB tethering in the kernel, outside the VPN, so other devices sharing this phone\'s connection are not bonded.</string>
+    <string name="proxy_heading">SOCKS5 proxy for other devices</string>
+    <string name="proxy_note">Turn on this phone\'s hotspot, connect another device to it, and point that device\'s proxy client (Surge, for example) at the address above. Its traffic then goes out over the bond.</string>
+    <string name="tethering_note">Devices on this phone\'s hotspot are not bonded automatically: Android forwards tethered traffic in the kernel, outside the VPN. Sending them through the proxy above is what puts them on the bond. The proxy carries TCP; other traffic still goes out unbonded.</string>
 </resources>

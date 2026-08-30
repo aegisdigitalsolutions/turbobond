@@ -14,6 +14,7 @@ import com.aegisdigital.turbobond.core.FrameType
 import com.aegisdigital.turbobond.core.Protocol
 import com.aegisdigital.turbobond.core.ReorderBuffer
 import com.aegisdigital.turbobond.core.Sealer
+import com.aegisdigital.turbobond.core.SocksProxy
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.DatagramPacket
@@ -40,6 +41,7 @@ class BondVpnService : VpnService() {
     private val sequence = AtomicLong(0)
     private var tunnel: ParcelFileDescriptor? = null
     private var uplinkManager: UplinkManager? = null
+    private var proxy: SocksProxy? = null
     private var sessionId = 0
     private val threads = mutableListOf<Thread>()
 
@@ -119,6 +121,28 @@ class BondVpnService : VpnService() {
         threads += thread(name = "tbond-tun") { pumpTun(descriptor, sealer, host, settings.port) }
         threads += thread(name = "tbond-net") { pumpNetwork(descriptor, sealer, reorder) }
         threads += thread(name = "tbond-keepalive") { keepalive(sealer, host, settings.port) }
+
+        startProxy(settings.proxyPort)
+    }
+
+    /**
+     * Serve the bond to devices that cannot run the client.
+     *
+     * The proxy's onward sockets are deliberately *not* passed to protect(),
+     * which is the whole point: unprotected sockets go through our own tunnel,
+     * so a tablet's connection arrives here over the hotspot and leaves
+     * bonded. Protecting them would send it out over one radio, unbonded, and
+     * the tablet would be no better off than before.
+     */
+    private fun startProxy(port: Int) {
+        if (port <= 0) return
+        try {
+            proxy = SocksProxy(port = port).also { it.start() }
+            Log.i(TAG, "SOCKS5 proxy listening on $port")
+        } catch (exc: Exception) {
+            Log.w(TAG, "could not start the proxy on $port: ${exc.message}")
+            proxy = null
+        }
     }
 
     /** Phone to concentrator: read the TUN and spread packets across the radios. */
@@ -248,6 +272,7 @@ class BondVpnService : VpnService() {
             joined == 0 -> "${links.size} uplink(s), pairing..."
             else -> "Bonded over $joined of ${links.size}: " + links.joinToString(", ") { it.transport }
         }
+        Status.publishProxy(LocalAddress.find(), proxy?.boundPort ?: 0)
         Status.publish(this, text)
         runCatching {
             (getSystemService(NotificationManager::class.java))
@@ -257,6 +282,8 @@ class BondVpnService : VpnService() {
 
     private fun stopTunnel() {
         if (!running.getAndSet(false)) return
+        runCatching { proxy?.stop() }
+        proxy = null
         uplinkManager?.stop()
         uplinkManager = null
         threads.forEach { it.interrupt() }
