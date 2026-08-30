@@ -15,8 +15,14 @@ android {
         // without a device to run it on, and getting it wrong crashes the
         // service on launch. 33 installs and runs on current Android.
         targetSdk = 33
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
+    }
+
+    // Off by default in AGP 8, and the app shows its version so a report can be
+    // tied to a build.
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

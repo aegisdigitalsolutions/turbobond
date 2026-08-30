@@ -246,6 +246,29 @@ BBR with `fq` (return traffic is paced from this side, so this is what sets
 download throughput), no slow start after idle, and a conntrack table sized for
 NATing a whole LAN.
 
+### When a client cannot pair
+
+Run the self-check on the server:
+
+```bash
+sudo turbobond-server --check
+```
+
+It reports whether the service is running, whether anything is listening,
+whether a local firewall is in the way, and whether the address clients were
+told to dial is publicly routable. It finishes by handshaking with the running
+concentrator over the loopback using the installed key, which is the check that
+matters: an `ok` there means the service, the key and the protocol are all
+sound, so anything still failing is on the network path in between, and the
+only things left are the cloud firewall and the key the client is using.
+
+That distinction is otherwise hard to make, because unauthenticated datagrams
+are dropped without a reply: from the client, a blocked port and a wrong key
+look the same. The server separates them. Watch `journalctl -u
+turbobond-concentrator -f` while the client tries — a `failed to authenticate`
+line means the packets are arriving and the key is wrong, and silence means
+they are not arriving at all.
+
 If you lose the pairing values, read them back with `sudo turbobond-server
 --pairing`. The `sudo` is required: the unit holds the key and is mode 0600.
 Do not reinstall to recover them — the installer keeps an existing key, but
@@ -373,7 +396,7 @@ generated firewall ruleset into one file.
 
 ```bash
 pip install -e '.[dev]'
-pytest        # 302 tests, no privileges needed
+pytest        # 324 tests, no privileges needed
 ruff check .
 ```
 

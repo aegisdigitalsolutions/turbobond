@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from turbobond.bond import provision
+from turbobond.bond import provision, selfcheck
 from turbobond.bond.protocol import (
     MAX_DATAGRAM,
     FrameType,
@@ -459,6 +459,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print the host, port and key this concentrator is already using",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="work out why clients cannot pair with this concentrator",
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -536,6 +541,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.gen_psk:
         print(generate_psk())
         return 0
+    if args.check:
+        try:
+            results, verdict = selfcheck.run_checks(args.public_ip)
+        except PermissionError:
+            print(
+                "error: the concentrator's service file is readable only by root. "
+                "Re-run this as: sudo turbobond-server --check",
+                file=sys.stderr,
+            )
+            return 1
+        print(selfcheck.format_report(results, verdict))
+        return 1 if any(r.status == selfcheck.FAIL for r in results) else 0
     if args.pairing:
         try:
             settings = provision.installed_settings()

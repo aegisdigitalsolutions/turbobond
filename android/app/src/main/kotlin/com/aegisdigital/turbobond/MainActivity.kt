@@ -53,6 +53,16 @@ class MainActivity : Activity() {
         status.text = Status.latest
         showProxy()
 
+        // Shown so a report of "it does nothing" can be tied to a build,
+        // rather than guessing whether a fix is even installed.
+        findViewById<TextView>(R.id.version).text = buildString {
+            append("version ")
+            append(BuildConfig.VERSION_NAME)
+            append(" (build ")
+            append(BuildConfig.VERSION_CODE)
+            append(")")
+        }
+
         findViewById<Button>(R.id.connect).setOnClickListener { connect() }
         findViewById<Button>(R.id.disconnect).setOnClickListener {
             startService(Intent(this, BondVpnService::class.java).setAction(BondVpnService.ACTION_STOP))
