@@ -8,17 +8,26 @@
     <string name="default_port">5310</string>
     <string name="label_psk">Pre-shared key</string>
     <string name="hint_psk">the hex key the installer printed</string>
+    <string name="label_profile">Connection profile</string>
+    <string name="apply_profile">Apply profile</string>
     <string name="advanced_heading">Advanced settings</string>
     <string name="label_proxy_port">Proxy port (0 = off)</string>
     <string name="default_proxy_port">1080</string>
+    <string name="label_dns_primary">DNS primary</string>
+    <string name="default_dns_primary">1.1.1.1</string>
+    <string name="label_dns_secondary">DNS secondary</string>
+    <string name="default_dns_secondary">8.8.8.8</string>
     <string name="label_mtu">Tunnel MTU</string>
     <string name="default_mtu">1380</string>
+    <string name="label_duplicate_under">Duplicate packets up to bytes</string>
+    <string name="default_duplicate_under">260</string>
     <string name="label_pair_timeout">Handshake timeout (seconds)</string>
     <string name="default_pair_timeout">20</string>
     <string name="label_keepalive">Keepalive interval (seconds)</string>
     <string name="default_keepalive">15</string>
     <string name="label_silence_limit">Disconnect after silence (seconds)</string>
     <string name="default_silence_limit">75</string>
+    <string name="diagnostics_heading">Live diagnostics</string>
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="proxy_heading">SOCKS5 proxy for other devices</string>

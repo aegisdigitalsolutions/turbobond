@@ -68,6 +68,24 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/label_profile" />
+
+        <Spinner
+            android:id="@+id/profile"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <Button
+            android:id="@+id/applyProfile"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/apply_profile" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
             android:text="@string/advanced_heading"
             android:textStyle="bold" />
@@ -90,6 +108,34 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
+            android:text="@string/label_dns_primary" />
+
+        <EditText
+            android:id="@+id/dnsPrimary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="none"
+            android:hint="@string/default_dns_primary"
+            android:inputType="text" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/label_dns_secondary" />
+
+        <EditText
+            android:id="@+id/dnsSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="none"
+            android:hint="@string/default_dns_secondary"
+            android:inputType="text" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
             android:text="@string/label_mtu" />
 
         <EditText
@@ -99,6 +145,20 @@
             android:autofillHints="none"
             android:inputType="number"
             android:text="@string/default_mtu" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/label_duplicate_under" />
+
+        <EditText
+            android:id="@+id/duplicateUnder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="none"
+            android:inputType="number"
+            android:text="@string/default_duplicate_under" />
 
         <TextView
             android:layout_width="match_parent"
@@ -163,6 +223,21 @@
             android:layout_marginTop="24dp"
             android:textSize="16sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/diagnostics_heading"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/diagnostics"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="13sp"
+            android:textIsSelectable="true" />
 
         <TextView
             android:layout_width="match_parent"

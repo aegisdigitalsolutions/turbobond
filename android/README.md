@@ -165,6 +165,16 @@ The app also exposes advanced knobs in the main screen: proxy port, tunnel MTU,
 handshake timeout, keepalive interval, and inactivity timeout before it
 releases the tunnel.
 
+It also supports user-set DNS resolvers, packet-duplication threshold tuning,
+and built-in profiles:
+
+- **Max Speed** — higher MTU, lower duplication, faster handshake timeout
+- **Stability** — conservative MTU and keepalive for lossy links
+- **SIP/VoIP** — aggressive duplication for small packets plus tighter keepalive
+- **Streaming** — balanced settings for sustained throughput
+
+Use **Apply profile** to prefill those values, then adjust manually if needed.
+
 The notification shows which radios have joined: `Bonded over 2 of 2: wifi,
 cellular` means both are carrying traffic.
 
@@ -214,3 +224,7 @@ compiles and is structured the way Android's own documentation prescribes, but
 it has not been run on a physical device — there was no phone available to the
 build. Treat the first install as a test: if something is wrong, remove the VPN
 profile in Android's settings and connectivity returns immediately.
+
+The app now includes a live diagnostics panel with current profile, uplink
+join count, applied DNS, tx/rx counters and throughput, handshake/keepalive
+counts, rejected packet count, and last error.

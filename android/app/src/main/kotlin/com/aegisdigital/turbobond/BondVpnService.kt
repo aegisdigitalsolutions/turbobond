@@ -19,6 +19,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.DatagramPacket
 import java.net.InetAddress
+import java.text.DecimalFormat
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
@@ -41,11 +42,22 @@ class BondVpnService : VpnService() {
     private val pairing = AtomicBoolean(false)
     private val sequence = AtomicLong(0)
     private val lastHeard = AtomicLong(0)
+    private val sessionStarted = AtomicLong(0)
     private var tunnel: ParcelFileDescriptor? = null
     private var uplinkManager: UplinkManager? = null
     private var proxy: SocksProxy? = null
     private var sessionId = 0
     private val threads = mutableListOf<Thread>()
+    private val txPackets = AtomicLong(0)
+    private val txBytes = AtomicLong(0)
+    private val rxPackets = AtomicLong(0)
+    private val rxBytes = AtomicLong(0)
+    private val rejectedPackets = AtomicLong(0)
+    private val handshakeAcks = AtomicLong(0)
+    private val keepaliveTx = AtomicLong(0)
+    @Volatile private var currentProfile: String = ConnectionProfiles.CUSTOM
+    @Volatile private var dnsApplied: String = "1.1.1.1, 8.8.8.8"
+    @Volatile private var lastError: String = ""
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -87,6 +99,15 @@ class BondVpnService : VpnService() {
         }
 
         sessionId = (System.nanoTime() and 0x7FFFFFFF).toInt()
+        currentProfile = settings.profileName
+        lastError = ""
+        txPackets.set(0)
+        txBytes.set(0)
+        rxPackets.set(0)
+        rxBytes.set(0)
+        rejectedPackets.set(0)
+        handshakeAcks.set(0)
+        keepaliveTx.set(0)
 
         val manager = UplinkManager(this) { onUplinksChanged() }
         manager.protector = { socket -> protect(socket) }
@@ -155,6 +176,7 @@ class BondVpnService : VpnService() {
 
         if (!pairing.get()) return
         Log.w(TAG, "no reply from ${settings.host}:${settings.port} in ${settings.pairTimeoutMs}ms")
+        lastError = "No reply from ${settings.host}:${settings.port}"
         fail(
             if (!sawUplink) "No usable network"
             else "No reply from ${settings.host}:${settings.port}",
@@ -179,8 +201,6 @@ class BondVpnService : VpnService() {
             .setSession("turbobond")
             .addAddress(TUNNEL_ADDRESS, 30)
             .addRoute("0.0.0.0", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
             .setMtu(settings.tunnelMtu)
             .setConfigureIntent(
                 PendingIntent.getActivity(
@@ -188,24 +208,30 @@ class BondVpnService : VpnService() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
-            .establish()
+        val resolvedDns = resolveDnsServers(settings)
+        dnsApplied = resolvedDns.joinToString(", ")
+        resolvedDns.forEach { descriptor.addDnsServer(it) }
+        val tun = descriptor.establish()
 
-        if (descriptor == null) {
+        if (tun == null) {
             Log.e(TAG, "the system refused to establish the tunnel")
+            lastError = "Permission refused"
             fail("Permission refused")
             return
         }
 
-        tunnel = descriptor
+        tunnel = tun
         lastHeard.set(System.currentTimeMillis())
         running.set(true)
+        sessionStarted.set(System.currentTimeMillis())
 
         val reorder = ReorderBuffer(timeoutMs = REORDER_MS)
 
-        threads += thread(name = "tbond-tun") { pumpTun(descriptor, sealer, host, settings) }
-        threads += thread(name = "tbond-net") { pumpNetwork(descriptor, sealer, reorder) }
+        threads += thread(name = "tbond-tun") { pumpTun(tun, sealer, host, settings) }
+        threads += thread(name = "tbond-net") { pumpNetwork(tun, sealer, reorder) }
         threads += thread(name = "tbond-keepalive") { keepalive(sealer, host, settings.port, settings.keepaliveMs) }
         threads += thread(name = "tbond-watchdog") { watchdog(settings.silenceLimitMs) }
+        threads += thread(name = "tbond-diag") { diagnosticsLoop() }
 
         startProxy(settings.proxyPort)
         onUplinksChanged()
@@ -229,6 +255,7 @@ class BondVpnService : VpnService() {
             // clock stuck at zero and the tunnel up forever.
             if (System.currentTimeMillis() - lastHeard.get() < silenceLimitMs) continue
             Log.w(TAG, "no reply from the concentrator in ${silenceLimitMs}ms; releasing the tunnel")
+            lastError = "Server stopped responding"
             fail("Server stopped responding")
             return
         }
@@ -283,7 +310,7 @@ class BondVpnService : VpnService() {
             // Small packets are cheap to duplicate and are usually signalling,
             // where a single loss is expensive. This is what keeps a call up
             // when one radio drops a packet.
-            if (packet.size <= DUPLICATE_UNDER && links.size > 1) {
+            if (packet.size <= settings.duplicateUnderBytes && links.size > 1) {
                 for (other in links) {
                     if (other !== uplink) send(sealer, other, FrameType.DATA, host, settings.port, seq, packet)
                 }
@@ -310,7 +337,11 @@ class BondVpnService : VpnService() {
                 } catch (_: Exception) {
                     continue
                 }
-                val frame = Protocol.decode(sealer, buffer.copyOf(datagram.length)) ?: continue
+                val frame = Protocol.decode(sealer, buffer.copyOf(datagram.length))
+                if (frame == null) {
+                    rejectedPackets.incrementAndGet()
+                    continue
+                }
                 // Only authenticated datagrams count as the far end being
                 // alive, so stray traffic to this port cannot hold the
                 // watchdog off a tunnel that is actually dead.
@@ -322,6 +353,7 @@ class BondVpnService : VpnService() {
                     FrameType.HANDSHAKE_ACK -> {
                         if (!uplink.acked) {
                             uplink.acked = true
+                            handshakeAcks.incrementAndGet()
                             Log.i(TAG, "$uplink joined the bond")
                             onUplinksChanged()
                         }
@@ -335,6 +367,8 @@ class BondVpnService : VpnService() {
                     }
                     else -> Unit
                 }
+                rxPackets.incrementAndGet()
+                rxBytes.addAndGet(datagram.length.toLong())
             }
             for (out in reorder.tick()) {
                 runCatching { output.write(out) }
@@ -354,6 +388,7 @@ class BondVpnService : VpnService() {
             for (uplink in uplinkManager?.uplinks.orEmpty()) {
                 val type = if (uplink.acked) FrameType.KEEPALIVE else FrameType.HANDSHAKE
                 send(sealer, uplink, type, host, port, 0, ByteArray(0))
+                keepaliveTx.incrementAndGet()
             }
             Thread.sleep(keepaliveMs)
         }
@@ -373,9 +408,62 @@ class BondVpnService : VpnService() {
                 sealer, type, sessionId, uplink.id, uplink.nextCounter(), seq, payload,
             )
             uplink.socket.send(DatagramPacket(datagram, datagram.size, host, port))
+            txPackets.incrementAndGet()
+            txBytes.addAndGet(datagram.size.toLong())
         } catch (exc: Exception) {
             Log.w(TAG, "send over $uplink failed: ${exc.message}")
+            lastError = "Send failed on ${uplink.transport}: ${exc.message}"
         }
+    }
+
+    private fun diagnosticsLoop() {
+        while (running.get() || pairing.get()) {
+            publishDiagnostics()
+            try {
+                Thread.sleep(2_000L)
+            } catch (_: InterruptedException) {
+                return
+            }
+        }
+    }
+
+    private fun publishDiagnostics() {
+        val links = uplinkManager?.uplinks.orEmpty()
+        val joined = links.count { it.acked }
+        val tx = txPackets.get()
+        val rx = rxPackets.get()
+        val txMbps = mbps(txBytes.get())
+        val rxMbps = mbps(rxBytes.get())
+        val text = buildString {
+            appendLine("profile: $currentProfile")
+            appendLine("status: ${if (running.get()) "running" else if (pairing.get()) "pairing" else "stopped"}")
+            appendLine("uplinks: $joined/${links.size}")
+            appendLine("dns: $dnsApplied")
+            appendLine("tx: $tx packets (${txBytes.get()} bytes, ${txMbps} Mbps)")
+            appendLine("rx: $rx packets (${rxBytes.get()} bytes, ${rxMbps} Mbps)")
+            appendLine("handshake_acks: ${handshakeAcks.get()}")
+            appendLine("keepalive_tx: ${keepaliveTx.get()}")
+            appendLine("rejected_rx: ${rejectedPackets.get()}")
+            append("last_error: ${if (lastError.isBlank()) "none" else lastError}")
+        }
+        Status.publishDiagnostics(this, text)
+    }
+
+    private fun mbps(totalBytes: Long): String {
+        val started = sessionStarted.get().takeIf { it > 0 } ?: System.currentTimeMillis()
+        val seconds = (System.currentTimeMillis() - started).coerceAtLeast(1L) / 1000.0
+        val mbps = (totalBytes * 8.0) / 1_000_000.0 / seconds
+        return DecimalFormat("0.00").format(mbps)
+    }
+
+    private fun resolveDnsServers(settings: Settings): List<String> {
+        val preferred = listOf(settings.dnsPrimary.trim(), settings.dnsSecondary.trim()).filter { it.isNotBlank() }
+        val valid = preferred.mapNotNull { candidate ->
+            runCatching {
+                InetAddress.getByName(candidate).hostAddress
+            }.getOrNull()
+        }
+        return if (valid.isNotEmpty()) valid else listOf("1.1.1.1", "8.8.8.8")
     }
 
     private fun onUplinksChanged() {
@@ -388,6 +476,7 @@ class BondVpnService : VpnService() {
         }
         Status.publishProxy(LocalAddress.find(), proxy?.boundPort ?: 0)
         Status.publish(this, text)
+        publishDiagnostics()
         runCatching {
             (getSystemService(NotificationManager::class.java))
                 .notify(NOTIFICATION_ID, notification(text))
@@ -411,6 +500,7 @@ class BondVpnService : VpnService() {
         threads.clear()
         runCatching { tunnel?.close() }
         tunnel = null
+        publishDiagnostics()
         Status.publish(this, reason)
     }
 
@@ -442,7 +532,6 @@ class BondVpnService : VpnService() {
         private const val NOTIFICATION_ID = 1
         private const val TUNNEL_ADDRESS = "10.77.0.2"
         private const val REORDER_MS = 90L
-        private const val DUPLICATE_UNDER = 260
 
         private const val PAIR_POLL_MS = 250
         private const val WATCHDOG_POLL_MS = 5_000L
