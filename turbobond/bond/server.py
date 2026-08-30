@@ -432,6 +432,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="",
         help="address clients dial for --provision (default: autodetect)",
     )
+    parser.add_argument(
+        "--pairing",
+        action="store_true",
+        help="print the host, port and key this concentrator is already using",
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -443,7 +448,13 @@ def _provision(args: argparse.Namespace) -> int:
         print("error: --provision needs root.", file=sys.stderr)
         return 2
 
-    psk = args.psk or generate_psk()
+    # Re-running the installer must not unpair the clients that are already
+    # configured, so an existing key is kept unless one is given explicitly.
+    existing = provision.installed_settings()
+    psk = args.psk or (existing.psk if existing else "") or generate_psk()
+    if existing and psk == existing.psk and not args.psk:
+        print("  keeping the key already installed here")
+
     settings = provision.ConcentratorSettings(
         psk=psk,
         port=int(args.listen.rpartition(":")[2] or 5310),
@@ -491,6 +502,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.gen_psk:
         print(generate_psk())
+        return 0
+    if args.pairing:
+        settings = provision.installed_settings()
+        if settings is None:
+            print(
+                "error: no installed concentrator found. Run the installer first.",
+                file=sys.stderr,
+            )
+            return 1
+        print(provision.pairing_summary(settings, args.public_ip or provision.detect_public_ip()))
         return 0
     if args.provision:
         return _provision(args)

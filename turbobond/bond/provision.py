@@ -120,6 +120,39 @@ def pairing_summary(settings: ConcentratorSettings, public_ip: str) -> str:
 """
 
 
+def installed_settings() -> ConcentratorSettings | None:
+    """Read back the pairing values from the installed unit.
+
+    The key is generated on the host and never leaves it, so the unit is the
+    only copy. Reading it back is what lets the values be shown again without
+    regenerating them, which would silently unpair every client.
+    """
+
+    try:
+        text = UNIT_PATH.read_text()
+    except OSError:
+        return None
+
+    psk = ""
+    port = 5310
+    server_ip = "10.77.0.1"
+    peer_ip = "10.77.0.2"
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("Environment=TURBOBOND_PSK="):
+            psk = line.split("=", 2)[2]
+        elif line.startswith("--listen"):
+            port = int(line.split(":")[-1].rstrip(" \\"))
+        elif line.startswith("--local-cidr"):
+            server_ip = line.split()[1].split("/")[0]
+        elif line.startswith("--peer-ip"):
+            peer_ip = line.split()[1].rstrip(" \\")
+
+    if not psk:
+        return None
+    return ConcentratorSettings(psk=psk, port=port, server_ip=server_ip, peer_ip=peer_ip)
+
+
 def detect_public_ip() -> str:
     """Best guess at the address a client would dial, from local state only.
 
