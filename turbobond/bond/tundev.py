@@ -34,7 +34,12 @@ class TunDevice:
         self.mtu = mtu
         self._fd: int | None = None
         self._simulated = False
-        self._sim_queue: list[bytes] = []
+        # A TUN device is bidirectional: reads take packets the kernel is
+        # sending out, writes inject packets into the kernel. The simulation
+        # keeps those two directions in separate queues so it behaves the same
+        # way; sharing one queue would feed written packets straight back.
+        self._sim_rx: list[bytes] = []
+        self._sim_tx: list[bytes] = []
 
     # ------------------------------------------------------------------- open
 
@@ -108,7 +113,7 @@ class TunDevice:
         """Read one packet. Returns ``None`` when nothing is queued."""
 
         if self._simulated:
-            return self._sim_queue.pop(0) if self._sim_queue else None
+            return self._sim_rx.pop(0) if self._sim_rx else None
         if self._fd is None:
             return None
         try:
@@ -123,7 +128,7 @@ class TunDevice:
         """Inject a packet into the kernel."""
 
         if self._simulated:
-            self._sim_queue.append(packet)
+            self._sim_tx.append(packet)
             return len(packet)
         if self._fd is None:
             return 0
@@ -140,7 +145,15 @@ class TunDevice:
 
         if not self._simulated:
             raise DependencyError("inject_for_test is only available on a simulated device")
-        self._sim_queue.append(packet)
+        self._sim_rx.append(packet)
+
+    def drain_for_test(self) -> list[bytes]:
+        """Take everything written towards the kernel. Simulation only."""
+
+        if not self._simulated:
+            raise DependencyError("drain_for_test is only available on a simulated device")
+        written, self._sim_tx = self._sim_tx, []
+        return written
 
     # ------------------------------------------------------------------ close
 
@@ -150,7 +163,8 @@ class TunDevice:
                 os.close(self._fd)
             self._fd = None
         self._simulated = False
-        self._sim_queue.clear()
+        self._sim_rx.clear()
+        self._sim_tx.clear()
 
     def teardown(self) -> None:
         """Remove the interface entirely."""

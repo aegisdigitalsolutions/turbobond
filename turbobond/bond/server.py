@@ -157,6 +157,7 @@ class ConcentratorServer:
         self._stop.clear()
         self._tasks = [
             asyncio.create_task(self._tun_reader(), name="tbond-srv-tun"),
+            asyncio.create_task(self._reorder_ticker(), name="tbond-srv-reorder"),
             asyncio.create_task(self._reaper(), name="tbond-srv-reaper"),
         ]
         log.info("concentrator listening on %s:%d, tunnel %s", self.host, self.port, self.device.name)
@@ -324,6 +325,20 @@ class ConcentratorServer:
                 continue
             self._send(session, peer, FrameType.DATA, seq=session.next_seq(), payload=packet)
             return
+
+    async def _reorder_ticker(self) -> None:
+        """Release packets whose predecessors never turned up.
+
+        Without this, a gap left by a lost datagram would stall the flow until
+        the next packet happened to arrive and drove the buffer forward.
+        """
+
+        interval = max(self.reorder_timeout_ms / 3.0, 5.0) / 1000.0
+        while not self._stop.is_set():
+            await asyncio.sleep(interval)
+            for session in list(self.sessions.values()):
+                for packet in session.reorder.tick():
+                    self.device.write(packet)
 
     async def _reaper(self) -> None:
         """Drop links and sessions that have gone silent."""
