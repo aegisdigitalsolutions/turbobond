@@ -32,6 +32,17 @@ There is also no mobile or desktop app to download. The app *is* the web page
 the gateway serves at `http://<gateway>:8088`, which you open in any browser on
 any device.
 
+### If you do not have a gateway machine, but you do have an Android phone
+
+`android/` is the client half as an Android app. It bonds that phone's WiFi and
+mobile data across your own concentrator, with no root, so a phone you already
+own can use the bond without a Linux machine existing at all.
+
+The limit is that it covers **that phone only**. Android forwards hotspot and
+USB tethering traffic in the kernel, outside the VPN interface an app is given,
+so other devices sharing the phone's connection bypass it. See
+[`android/README.md`](android/README.md).
+
 ### If you do not have a gateway machine yet
 
 The M7 Pro can cover every device on its own, without turbobond and without any

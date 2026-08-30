@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">turbobond</string>
+    <string name="subtitle">Bonds this phone\'s WiFi and mobile data across your own concentrator.</string>
+    <string name="label_host">Concentrator host</string>
+    <string name="hint_host">203.0.113.10</string>
+    <string name="label_port">Concentrator port</string>
+    <string name="default_port">5310</string>
+    <string name="label_psk">Pre-shared key</string>
+    <string name="hint_psk">the hex key the installer printed</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="tethering_note">This covers traffic from this phone only. Android forwards hotspot and USB tethering in the kernel, outside the VPN, so other devices sharing this phone\'s connection are not bonded.</string>
+</resources>
