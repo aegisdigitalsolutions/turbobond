@@ -31,19 +31,25 @@ device's proxy client at the address the app displays.
 
 ### Surge (iOS and iPadOS)
 
-Surge is a good fit because it can send everything through a SOCKS5 proxy. Add
-a profile like this, with the address from the app's screen:
+A complete profile is in [`surge/turbobond.conf`](surge/turbobond.conf). Copy
+it into Surge and change one line: the address in `[Proxy]`, to whatever the
+app is showing.
 
-```ini
-[Proxy]
-Bond = socks5, 192.168.43.1, 1080
+Four settings in it are load-bearing, and each fails quietly rather than
+loudly if you drop it:
 
-[Rule]
-FINAL, Bond
-```
+- `ipv6 = false`. The bond is IPv4. Left on, the device opens IPv6 connections
+  that bypass the proxy entirely and are never bonded, with nothing to see.
+- `skip-proxy` and the local `IP-CIDR` rules. The proxy is on the local
+  network, so without these the device tries to reach the proxy through itself.
+- `udp-relay=false`. Only CONNECT is implemented, so UDP cannot traverse the
+  proxy. Announcing support for it would send UDP somewhere it silently dies.
+- The `fallback` proxy group. If the phone goes out of range or turbobond
+  disconnects, this device drops to an ordinary direct connection instead of
+  losing internet, and rejoins the bond by itself afterwards.
 
 Hostnames are passed to the proxy rather than resolved locally, so DNS for
-proxied connections is resolved at your concentrator too.
+proxied connections resolves at your concentrator too.
 
 Any SOCKS5-capable client works the same way; Surge is not special here.
 
@@ -56,6 +62,18 @@ video-call protocols do not.
 
 Covering every device on the network including UDP, with nothing to configure
 per device, is what the Linux gateway does.
+
+## What you do not have to configure
+
+The app never signs in to your router. To it, the router is just a WiFi network
+the phone has joined, indistinguishable from any other. There is nowhere to put
+a router admin password, and none is needed. (The Linux gateway does sign in to
+the router, to disable its SIP ALG and apply tuning. That is the gateway's job,
+not this app's.)
+
+There is no account, no sign-in, and no username or password for the server
+either. The pre-shared key is the entire credential: holding it is what proves
+a client is allowed to open a session. Nothing else is exchanged.
 
 ## Build
 
