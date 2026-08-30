@@ -32,6 +32,22 @@ There is also no mobile or desktop app to download. The app *is* the web page
 the gateway serves at `http://<gateway>:8088`, which you open in any browser on
 any device.
 
+### If you do not have a gateway machine yet
+
+The M7 Pro can cover every device on its own, without turbobond and without any
+extra hardware. It supports WiFi and Ethernet *offloading*: the hotspot uses a
+local WiFi or Ethernet connection for its internet instead of cellular, and
+switches automatically when one degrades. On the device, tap Internet and choose
+`WiFi + Cellular`; in its web interface it is under Settings > General >
+Internet, where the default is `Cellular Only`.
+
+That is failover, not bonding. It uses one connection at a time rather than both
+at once, so it adds no speed. What it does give you is every device staying
+online when the shared WiFi channel gets congested, which is most of the
+practical benefit when the problem is congestion rather than raw bandwidth. It
+costs nothing and works today, so it is worth turning on regardless of whether
+you later add a gateway.
+
 ## How the pieces fit together
 
 Three machines have three different jobs, and almost every setup problem comes
