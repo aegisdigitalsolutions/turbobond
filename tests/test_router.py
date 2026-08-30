@@ -115,6 +115,28 @@ class TestDeviceListing:
         assert [d.mac for d in devices] == ["aa:bb:cc:dd:ee:ff"]
 
 
+class TestSimulatedWrites:
+    async def test_disabling_sip_alg_is_visible_on_the_next_read(self) -> None:
+        """The dashboard reads the router back, so a write has to stick."""
+
+        with dry_run_scope():
+            admin = NighthawkAdmin(RouterConfig())
+            await admin.connect()
+            assert (await admin.status()).sip_alg_enabled is True
+
+            assert await admin.set_sip_alg(False) is True
+            assert (await admin.status()).sip_alg_enabled is False
+
+    async def test_one_routers_writes_do_not_leak_into_another(self) -> None:
+        with dry_run_scope():
+            first = NighthawkAdmin(RouterConfig())
+            await first.connect()
+            await first.set_sip_alg(False)
+
+            second = NighthawkAdmin(RouterConfig())
+            assert (await second.status()).sip_alg_enabled is True
+
+
 class TestTransport:
     """These exercise the real HTTP path, so dry-run's simulated tree is off."""
 

@@ -10,6 +10,7 @@ and every write is attempted against each known alias until one sticks.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import re
 from typing import Any
@@ -102,6 +103,20 @@ def dig(tree: Any, dotted: str) -> Any:
         else:
             return None
     return node
+
+
+def plant(tree: dict[str, Any], dotted: str, value: Any) -> None:
+    """Write *value* at a dotted path, creating the intermediate dicts."""
+
+    parts = dotted.split(".")
+    node = tree
+    for part in parts[:-1]:
+        child = node.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            node[part] = child
+        node = child
+    node[parts[-1]] = value
 
 
 def first_present(tree: Any, paths: tuple[str, ...]) -> Any:
@@ -197,7 +212,11 @@ class NighthawkAdmin:
         """Pull the router's full state tree."""
 
         if is_dry_run():
-            self._model = _SIMULATED_MODEL
+            # A private copy, so a simulated write is visible on the next read
+            # the way a real router's would be, and one instance's writes never
+            # leak into another's.
+            if not self._model:
+                self._model = copy.deepcopy(_SIMULATED_MODEL)
             return self._model
 
         client = await self._http()
@@ -404,6 +423,10 @@ class NighthawkAdmin:
     async def _post_config(self, values: dict[str, Any]) -> bool:
         if is_dry_run():
             log.info("[dry-run] router set %s", values)
+            model = await self.fetch_model()
+            for key, value in values.items():
+                if dig(model, key) is not None:
+                    plant(model, key, value)
             return True
         client = await self._http()
         payload = {k: _form_value(v) for k, v in values.items()}

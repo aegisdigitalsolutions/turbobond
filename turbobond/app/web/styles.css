@@ -51,6 +51,11 @@ p { margin: 0 0 0.75rem; }
 
 .view { min-height: 100vh; }
 
+/* The views below set an explicit display, which outranks the browser's own
+   rule for [hidden]. Without this the hidden ones keep taking up a screen
+   each and the dashboard ends up below the fold. */
+[hidden] { display: none !important; }
+
 /* ------------------------------------------------------------------ shared */
 
 .card {

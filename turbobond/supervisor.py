@@ -191,9 +191,11 @@ class Supervisor:
             degraded = [s for s in self.stages if s.degraded or not s.ok]
             self.phase = Phase.DEGRADED if degraded else Phase.ACTIVE
             self._activated_ts = time.time()
+            elapsed = time.time() - start
+            took = f"{elapsed * 1000:.0f}ms" if elapsed < 1.0 else f"{elapsed:.1f}s"
             await self._progress(
                 self.phase,
-                f"activation complete in {time.time() - start:.1f}s"
+                f"activation complete in {took}"
                 + (f" with {len(degraded)} degraded stage(s)" if degraded else ""),
                 1.0,
             )
