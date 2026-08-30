@@ -75,6 +75,33 @@ There is no account, no sign-in, and no username or password for the server
 either. The pre-shared key is the entire credential: holding it is what proves
 a client is allowed to open a session. Nothing else is exchanged.
 
+None of the router's inbound-traffic features need to be touched, because every
+connection in this design is opened *outbound* by the phone. The phone dials the
+concentrator on UDP 5310; the concentrator only ever replies to the address and
+port the phone's NAT already created. That is an ordinary outbound UDP flow, the
+same shape as a DNS query, so it traverses the router's NAT (and the carrier's,
+on the cellular link) without any mapping being configured ahead of time.
+
+| Router setting | Needed | Why |
+| --- | --- | --- |
+| Port forwarding | No | Forwarding exists to let the internet reach in. Nothing dials the phone. |
+| UPnP | No, leave off | Only useful for opening inbound ports, which we never need. It also lets any device on the LAN punch holes in the firewall, so off is both sufficient and safer. Off is the M7's default. |
+| DMZ | No, leave off | Exposes a device wholesale to the internet, in exchange for an inbound path we have no use for. Pure downside here. |
+| VPN passthrough | Irrelevant | Concerns IPsec and PPTP (ESP, AH, GRE). The tunnel is plain UDP, which passthrough does not govern. Enabled by default; leaving it that way changes nothing either way. |
+| DNS rebind protection | Leave on | Blocks public hostnames resolving to private addresses. The app is pointed at a public IP, so it is never in the path. Only relevant if you later give the concentrator a hostname pointing at a private address. |
+| IP passthrough | No | Hands the carrier IP to one downstream device and restarts the hotspot. It solves double-NAT for a downstream router; it does not help a phone making outbound connections. |
+
+Idle UDP mappings do get reaped — carriers are aggressive, often within a
+minute. The client sends a keepalive every 15 seconds, comfortably inside that
+window, which is what holds the mapping open on both the router and the carrier.
+
+One caveat if you go on to run SIP through this: the M7 Pro's documentation
+describes no SIP ALG toggle, and the field probe in `turbobond/router` returns
+false when the model exposes no such key. If the firmware does mangle SIP
+headers, there is no setting to stop it. That is an argument for carrying SIP
+inside the tunnel, where the router sees only opaque UDP and cannot rewrite
+anything, rather than sending it in the clear and hoping.
+
 ## Build
 
 Needs JDK 17 and the Android SDK. `ANDROID_HOME` must point at the SDK, or
