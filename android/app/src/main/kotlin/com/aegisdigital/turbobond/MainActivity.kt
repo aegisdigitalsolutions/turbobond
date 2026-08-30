@@ -23,11 +23,17 @@ class MainActivity : Activity() {
     private lateinit var port: EditText
     private lateinit var psk: EditText
     private lateinit var status: TextView
+    private lateinit var proxy: TextView
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             status.text = intent?.getStringExtra(Status.EXTRA) ?: Status.latest
+            showProxy()
         }
+    }
+
+    private fun showProxy() {
+        proxy.text = Status.proxyAddress.ifBlank { "not running" }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,12 +44,14 @@ class MainActivity : Activity() {
         port = findViewById(R.id.port)
         psk = findViewById(R.id.psk)
         status = findViewById(R.id.status)
+        proxy = findViewById(R.id.proxy)
 
         val saved = Settings.load(this)
         host.setText(saved.host)
         port.setText(saved.port.toString())
         psk.setText(saved.psk)
         status.text = Status.latest
+        showProxy()
 
         findViewById<Button>(R.id.connect).setOnClickListener { connect() }
         findViewById<Button>(R.id.disconnect).setOnClickListener {
@@ -61,6 +69,7 @@ class MainActivity : Activity() {
             registerReceiver(statusReceiver, filter)
         }
         status.text = Status.latest
+        showProxy()
     }
 
     override fun onPause() {

@@ -11,11 +11,51 @@ have one, this puts the client on hardware you already own.
 It bonds **this phone's own traffic**. Every app on the phone goes out over
 both radios at once, resequenced by your concentrator.
 
-It does **not** cover your other devices. Android forwards hotspot and USB
-tethering traffic in the kernel, outside the VPN interface any app can create,
-so a tablet on this phone's hotspot bypasses this app entirely. That is an
-Android design decision, not something the app can opt out of. Covering every
-device still needs the Linux gateway.
+Devices on the phone's hotspot are not bonded *automatically*. Android forwards
+tethered traffic in the kernel, outside the VPN interface any app can create,
+so a tablet on the hotspot would bypass this app entirely. That is an Android
+design decision and the app cannot opt out of it.
+
+The proxy is the way around it, and it is why one is built in.
+
+## Bringing other devices onto the bond
+
+Traffic the kernel *forwards* skips the tunnel, but traffic that **originates**
+from an app on the phone goes through it. A proxy turns the first into the
+second: another device's connection terminates at the proxy, and the onward
+connection the proxy makes is the phone's own, so it is bonded like anything
+else.
+
+So: turn on the phone's hotspot, connect the other device to it, and point that
+device's proxy client at the address the app displays.
+
+### Surge (iOS and iPadOS)
+
+Surge is a good fit because it can send everything through a SOCKS5 proxy. Add
+a profile like this, with the address from the app's screen:
+
+```ini
+[Proxy]
+Bond = socks5, 192.168.43.1, 1080
+
+[Rule]
+FINAL, Bond
+```
+
+Hostnames are passed to the proxy rather than resolved locally, so DNS for
+proxied connections is resolved at your concentrator too.
+
+Any SOCKS5-capable client works the same way; Surge is not special here.
+
+### What the proxy does not carry
+
+Only TCP. SOCKS5 can carry UDP through ASSOCIATE, which is not implemented, so
+UDP still leaves the other device unbonded. In practice that means web
+browsing, streaming and most apps go over the bond, while some games and some
+video-call protocols do not.
+
+Covering every device on the network including UDP, with nothing to configure
+per device, is what the Linux gateway does.
 
 ## Build
 
@@ -32,8 +72,12 @@ the standard debug key, which is enough to sideload but not to publish.
 
 ## Install
 
-Copy the APK to the phone and open it. Android will ask you to allow installing
-from unknown sources, since this is not from the Play Store.
+The build runs in CI, so a ready-made APK is attached to the `latest` release:
+
+    https://github.com/aegisdigitalsolutions/turbobond/releases/latest
+
+Open that on the phone and download `turbobond.apk`. Android will ask you to
+allow installing from unknown sources, since this is not from the Play Store.
 
 Then enter the three values the concentrator's installer printed — host, port
 and pre-shared key — and press Connect. Android asks once for permission to
