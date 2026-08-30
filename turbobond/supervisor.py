@@ -27,7 +27,7 @@ import contextlib
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from turbobond.bond import mptcp, routing
@@ -52,7 +52,7 @@ from turbobond.util.cmd import set_dry_run
 log = get_logger("supervisor")
 
 
-class Phase(str, Enum):
+class Phase(StrEnum):
     IDLE = "idle"
     PREFLIGHT = "preflight"
     ROUTER = "router"

@@ -431,11 +431,10 @@ class NighthawkAdmin:
         for key in candidates:
             if not key:
                 continue
-            if await self._post_config({key: value}):
-                if await self._confirm_written(key, value):
-                    self._write_key_cache[logical_name] = key
-                    log.info("router: %s = %s (via %s)", logical_name, value, key)
-                    return True
+            if await self._post_config({key: value}) and await self._confirm_written(key, value):
+                self._write_key_cache[logical_name] = key
+                log.info("router: %s = %s (via %s)", logical_name, value, key)
+                return True
         log.warning("router did not accept setting '%s' (tried %s)", logical_name, list(candidates))
         return False
 

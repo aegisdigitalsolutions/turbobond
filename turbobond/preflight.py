@@ -260,14 +260,20 @@ def check_shadowsocks(cfg: AppConfig) -> Check:
     return Check("shadowsocks", "ok", f"shadow route ready via {cfg.shadowsocks.host}:{cfg.shadowsocks.port}")
 
 
+#: Below this, `StrEnum`, `asyncio.TimeoutError` aliasing and `sock_sendto` are absent.
+MINIMUM_PYTHON = (3, 11)
+
+
 def check_python() -> Check:
-    if sys.version_info >= (3, 11):
-        return Check("python", "ok", f"Python {sys.version_info.major}.{sys.version_info.minor}")
+    running = (sys.version_info.major, sys.version_info.minor)
+    if running >= MINIMUM_PYTHON:
+        return Check("python", "ok", f"Python {running[0]}.{running[1]}")
+    required = f"{MINIMUM_PYTHON[0]}.{MINIMUM_PYTHON[1]}"
     return Check(
         "python",
         "blocking",
-        f"Python {sys.version_info.major}.{sys.version_info.minor} is too old",
-        remedy="turbobond needs Python 3.11 or newer.",
+        f"Python {running[0]}.{running[1]} is too old",
+        remedy=f"turbobond needs Python {required} or newer.",
     )
 
 

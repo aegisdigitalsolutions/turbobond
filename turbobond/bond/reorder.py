@@ -61,6 +61,12 @@ class ReorderBuffer:
         self._seen: set[int] = set()
         self._next_seq = 0
         self._started = False
+        # A session can open out of order, so nothing is delivered until one
+        # reorder interval has passed and we know the lowest sequence number in
+        # flight. Without this the very first packets would be lost whenever the
+        # slowest uplink happened to carry the head of the stream.
+        self._priming = False
+        self._prime_deadline = 0.0
 
     # ------------------------------------------------------------------ input
 
@@ -70,16 +76,22 @@ class ReorderBuffer:
         now = time.monotonic() if now is None else now
 
         if not self._started:
-            # First packet defines where the stream starts.
             self._started = True
             self._next_seq = seq
+            self._priming = True
+            self._prime_deadline = now + self.timeout_s
+        elif self._priming and seq < self._next_seq:
+            # Still learning where the stream starts; rewind to the earliest.
+            self._next_seq = seq
 
-        if seq < self._next_seq:
-            # Already delivered, or so late its slot has been skipped past.
-            self.stats.late_drops += 1
-            return []
         if seq in self._pending or seq in self._seen:
+            # A second copy of something we already have. Redundant transmission
+            # of SIP signalling relies on these being dropped silently.
             self.stats.duplicates += 1
+            return []
+        if seq < self._next_seq:
+            # So late that its slot has already been skipped past.
+            self.stats.late_drops += 1
             return []
 
         self._pending[seq] = (payload, now + self.timeout_s)
@@ -97,6 +109,11 @@ class ReorderBuffer:
 
     def _drain(self, now: float) -> list[bytes]:
         """Release every packet that is in order, or whose deadline has passed."""
+
+        if self._priming:
+            if now < self._prime_deadline:
+                return []
+            self._priming = False
 
         out: list[bytes] = []
         while self._heap:
@@ -129,6 +146,7 @@ class ReorderBuffer:
     def _force_flush(self, now: float) -> list[bytes]:
         """Buffer is over capacity: release the oldest half immediately."""
 
+        self._priming = False
         self.stats.overflow_flushes += 1
         target = len(self._pending) - (self.capacity // 2)
         out: list[bytes] = []
@@ -164,6 +182,7 @@ class ReorderBuffer:
     def flush(self) -> list[bytes]:
         """Release everything held, in sequence order. Used on shutdown."""
 
+        self._priming = False
         out: list[bytes] = []
         while self._heap:
             head = heapq.heappop(self._heap)
@@ -189,6 +208,8 @@ class ReorderBuffer:
         self._seen.clear()
         self._next_seq = 0
         self._started = False
+        self._priming = False
+        self._prime_deadline = 0.0
 
     def snapshot(self) -> dict[str, Any]:
         return {

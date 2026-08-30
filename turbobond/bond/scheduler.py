@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from turbobond.links.model import Link
@@ -38,7 +38,7 @@ log = get_logger("bond.scheduler")
 DEFAULT_QUANTUM = 1500
 
 
-class SchedulerMode(str, Enum):
+class SchedulerMode(StrEnum):
     WEIGHTED = "weighted"
     LOWEST_LATENCY = "lowest_latency"
     REDUNDANT = "redundant"

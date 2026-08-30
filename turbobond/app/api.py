@@ -88,6 +88,40 @@ class AppState:
         self.started_ts = time.time()
 
 
+def app_state(request: Request) -> AppState:
+    return request.app.state.tb  # type: ignore[no-any-return]
+
+
+def current_session(
+    request: Request,
+    turbobond_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> Session:
+    session = app_state(request).auth.resolve(turbobond_session)
+    if session is None:
+        raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "sign in first"})
+    return session
+
+
+def csrf_guard(
+    request: Request,
+    session: Annotated[Session, Depends(current_session)],
+    csrf: Annotated[str | None, Header(alias=CSRF_HEADER)] = None,
+) -> Session:
+    try:
+        app_state(request).auth.check_csrf(session, csrf)
+    except AuthError as exc:
+        raise HTTPException(status_code=403, detail=exc.as_dict()) from exc
+    return session
+
+
+# These aliases must live at module scope: with postponed annotations FastAPI
+# resolves endpoint type hints against this module's globals, so a dependency
+# alias defined inside the factory would be invisible and silently degrade into
+# a query parameter.
+SessionDep = Annotated[Session, Depends(current_session)]
+GuardedDep = Annotated[Session, Depends(csrf_guard)]
+
+
 def create_app(cfg: AppConfig | None = None) -> FastAPI:
     """Build the FastAPI application."""
 
@@ -103,30 +137,6 @@ def create_app(cfg: AppConfig | None = None) -> FastAPI:
         openapi_url="/api/openapi.json",
     )
     app.state.tb = state
-
-    # ------------------------------------------------------------ dependencies
-
-    def current_session(
-        request: Request,
-        turbobond_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-    ) -> Session:
-        session = state.auth.resolve(turbobond_session)
-        if session is None:
-            raise HTTPException(status_code=401, detail={"code": "unauthenticated", "message": "sign in first"})
-        return session
-
-    def csrf_guard(
-        session: Annotated[Session, Depends(current_session)],
-        csrf: Annotated[str | None, Header(alias=CSRF_HEADER)] = None,
-    ) -> Session:
-        try:
-            state.auth.check_csrf(session, csrf)
-        except AuthError as exc:
-            raise HTTPException(status_code=403, detail=exc.as_dict()) from exc
-        return session
-
-    SessionDep = Annotated[Session, Depends(current_session)]
-    GuardedDep = Annotated[Session, Depends(csrf_guard)]
 
     # ---------------------------------------------------------------- handlers
 

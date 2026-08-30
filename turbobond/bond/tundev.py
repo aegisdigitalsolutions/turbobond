@@ -8,6 +8,7 @@ device so the whole datapath can be exercised without CAP_NET_ADMIN.
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import os
 import struct
@@ -145,10 +146,8 @@ class TunDevice:
 
     def close(self) -> None:
         if self._fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(self._fd)
-            except OSError:
-                pass
             self._fd = None
         self._simulated = False
         self._sim_queue.clear()

@@ -19,6 +19,7 @@ documented web-admin surface rather than by flashing third-party firmware.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -275,8 +276,6 @@ class RouterProvisioner:
         self._stop.set()
         if self._search_task is not None:
             self._search_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._search_task
-            except (asyncio.CancelledError, Exception):
-                pass
             self._search_task = None
