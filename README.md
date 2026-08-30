@@ -373,7 +373,7 @@ generated firewall ruleset into one file.
 
 ```bash
 pip install -e '.[dev]'
-pytest        # 301 tests, no privileges needed
+pytest        # 302 tests, no privileges needed
 ruff check .
 ```
 

@@ -38,7 +38,9 @@ import kotlin.concurrent.thread
 class BondVpnService : VpnService() {
 
     private val running = AtomicBoolean(false)
+    private val pairing = AtomicBoolean(false)
     private val sequence = AtomicLong(0)
+    private val lastHeard = AtomicLong(0)
     private var tunnel: ParcelFileDescriptor? = null
     private var uplinkManager: UplinkManager? = null
     private var proxy: SocksProxy? = null
@@ -84,6 +86,95 @@ class BondVpnService : VpnService() {
             return
         }
 
+        sessionId = (System.nanoTime() and 0x7FFFFFFF).toInt()
+
+        val manager = UplinkManager(this) { onUplinksChanged() }
+        manager.protector = { socket -> protect(socket) }
+        uplinkManager = manager
+        manager.start()
+
+        pairing.set(true)
+        threads += thread(name = "tbond-pair") { pairThenEstablish(sealer, settings) }
+    }
+
+    /**
+     * Reach the concentrator first, and only then capture the phone's traffic.
+     *
+     * Establishing the interface up front is the obvious order and the wrong
+     * one: it installs a default route through a tunnel that may have no
+     * working far end, so an unreachable server, a closed UDP port or a
+     * mistyped key all present as the phone losing the internet entirely, with
+     * nothing to say why. Handshaking first costs a few seconds and means a
+     * failure leaves the connection untouched.
+     */
+    private fun pairThenEstablish(sealer: Sealer, settings: Settings) {
+        val host = try {
+            InetAddress.getByName(settings.host)
+        } catch (exc: Exception) {
+            Log.e(TAG, "cannot resolve ${settings.host}: ${exc.message}")
+            fail("Cannot find ${settings.host}")
+            return
+        }
+
+        val deadline = System.currentTimeMillis() + PAIR_TIMEOUT_MS
+        val buffer = ByteArray(Protocol.MAX_DATAGRAM)
+        var sawUplink = false
+
+        while (pairing.get() && System.currentTimeMillis() < deadline) {
+            val links = uplinkManager?.uplinks.orEmpty()
+            if (links.isEmpty()) {
+                Thread.sleep(200)
+                continue
+            }
+            if (!sawUplink) {
+                sawUplink = true
+                Status.publish(this, "Reaching ${settings.host}...")
+            }
+
+            for (uplink in links) {
+                send(sealer, uplink, FrameType.HANDSHAKE, host, settings.port, 0, ByteArray(0))
+            }
+            for (uplink in links) {
+                val datagram = DatagramPacket(buffer, buffer.size)
+                try {
+                    uplink.socket.soTimeout = PAIR_POLL_MS
+                    uplink.socket.receive(datagram)
+                } catch (_: Exception) {
+                    continue
+                }
+                val frame = Protocol.decode(sealer, buffer.copyOf(datagram.length)) ?: continue
+                if (frame.type == FrameType.HANDSHAKE_ACK) {
+                    uplink.acked = true
+                    uplink.lastSeen = System.currentTimeMillis()
+                    Log.i(TAG, "$uplink paired; bringing up the interface")
+                    establish(sealer, host, settings)
+                    return
+                }
+            }
+        }
+
+        if (!pairing.get()) return
+        Log.w(TAG, "no reply from ${settings.host}:${settings.port} in ${PAIR_TIMEOUT_MS}ms")
+        fail(
+            if (!sawUplink) "No usable network"
+            else "No reply from ${settings.host}:${settings.port}",
+        )
+    }
+
+    /** Report why the bond did not come up, without having touched routing. */
+    private fun fail(reason: String) {
+        pairing.set(false)
+        stopTunnel(reason)
+        runCatching {
+            (getSystemService(NotificationManager::class.java))
+                .notify(NOTIFICATION_ID, notification(reason))
+        }
+        stopSelf()
+    }
+
+    private fun establish(sealer: Sealer, host: InetAddress, settings: Settings) {
+        pairing.set(false)
+
         val descriptor = Builder()
             .setSession("turbobond")
             .addAddress(TUNNEL_ADDRESS, 30)
@@ -101,28 +192,46 @@ class BondVpnService : VpnService() {
 
         if (descriptor == null) {
             Log.e(TAG, "the system refused to establish the tunnel")
-            Status.publish(this, "Permission refused")
-            stopSelf()
+            fail("Permission refused")
             return
         }
 
         tunnel = descriptor
-        sessionId = (System.nanoTime() and 0x7FFFFFFF).toInt()
+        lastHeard.set(System.currentTimeMillis())
         running.set(true)
 
-        val manager = UplinkManager(this) { onUplinksChanged() }
-        manager.protector = { socket -> protect(socket) }
-        uplinkManager = manager
-        manager.start()
-
-        val host = InetAddress.getByName(settings.host)
         val reorder = ReorderBuffer(timeoutMs = REORDER_MS)
 
         threads += thread(name = "tbond-tun") { pumpTun(descriptor, sealer, host, settings.port) }
         threads += thread(name = "tbond-net") { pumpNetwork(descriptor, sealer, reorder) }
         threads += thread(name = "tbond-keepalive") { keepalive(sealer, host, settings.port) }
+        threads += thread(name = "tbond-watchdog") { watchdog() }
 
         startProxy(settings.proxyPort)
+        onUplinksChanged()
+    }
+
+    /**
+     * Give the phone its connection back if the far end disappears.
+     *
+     * Once the interface is up the default route points into it, so a
+     * concentrator that stops answering does not degrade the connection, it
+     * removes it. Holding the tunnel open in that state is worse than not
+     * having it, so the bond is torn down after every link has been silent long
+     * enough that it is clearly not a passing blip.
+     */
+    private fun watchdog() {
+        while (running.get()) {
+            Thread.sleep(WATCHDOG_POLL_MS)
+            if (!running.get()) return
+            // Measured from the last datagram over any link, seeded at
+            // establish, so links being torn down and replaced cannot leave the
+            // clock stuck at zero and the tunnel up forever.
+            if (System.currentTimeMillis() - lastHeard.get() < SILENCE_LIMIT_MS) continue
+            Log.w(TAG, "no reply from the concentrator in ${SILENCE_LIMIT_MS}ms; releasing the tunnel")
+            fail("Server stopped responding")
+            return
+        }
     }
 
     /**
@@ -201,8 +310,13 @@ class BondVpnService : VpnService() {
                 } catch (_: Exception) {
                     continue
                 }
-                uplink.lastSeen = System.currentTimeMillis()
                 val frame = Protocol.decode(sealer, buffer.copyOf(datagram.length)) ?: continue
+                // Only authenticated datagrams count as the far end being
+                // alive, so stray traffic to this port cannot hold the
+                // watchdog off a tunnel that is actually dead.
+                val now = System.currentTimeMillis()
+                uplink.lastSeen = now
+                lastHeard.set(now)
 
                 when (frame.type) {
                     FrameType.HANDSHAKE_ACK -> {
@@ -280,17 +394,24 @@ class BondVpnService : VpnService() {
         }
     }
 
-    private fun stopTunnel() {
-        if (!running.getAndSet(false)) return
+    private fun stopTunnel(reason: String = "Disconnected") {
+        // Pairing runs before the interface exists, so 'running' alone would
+        // leave the uplinks and their network requests behind when a pair that
+        // never completed is cancelled.
+        val wasRunning = running.getAndSet(false)
+        val wasPairing = pairing.getAndSet(false)
+        if (!wasRunning && !wasPairing) return
         runCatching { proxy?.stop() }
         proxy = null
         uplinkManager?.stop()
         uplinkManager = null
-        threads.forEach { it.interrupt() }
+        // Not the caller: fail() runs on one of these, and interrupting it here
+        // would land the interrupt on whatever it did next instead.
+        threads.filter { it !== Thread.currentThread() }.forEach { it.interrupt() }
         threads.clear()
         runCatching { tunnel?.close() }
         tunnel = null
-        Status.publish(this, "Disconnected")
+        Status.publish(this, reason)
     }
 
     private fun notification(text: String): Notification {
@@ -324,5 +445,13 @@ class BondVpnService : VpnService() {
         private const val REORDER_MS = 90L
         private const val KEEPALIVE_MS = 15_000L
         private const val DUPLICATE_UNDER = 260
+
+        /** Long enough for a slow cellular radio to attach and answer once. */
+        private const val PAIR_TIMEOUT_MS = 20_000L
+        private const val PAIR_POLL_MS = 250
+        private const val WATCHDOG_POLL_MS = 5_000L
+
+        /** Several keepalives' worth, so a blip does not drop a working bond. */
+        private const val SILENCE_LIMIT_MS = 75_000L
     }
 }

@@ -42,6 +42,12 @@ echo "==> installing the turbobond concentrator"
 
 if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
+    # On Ubuntu 22.04 and newer, needrestart opens a full-screen dialog when a
+    # library has been updated under a running service. On a host with pending
+    # updates that dialog takes over the terminal and swallows whatever is typed
+    # or pasted next, which looks exactly like the install doing nothing at all.
+    export NEEDRESTART_MODE=a
+    export NEEDRESTART_SUSPEND=1
     apt-get update -qq
     apt-get install -y --no-install-recommends \
         python3 python3-venv python3-pip iproute2 iptables ca-certificates
