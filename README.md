@@ -11,6 +11,27 @@ router's web administrator, applies its tuning profile, programs policy
 routing, brings up the bond, opens the firewall for voice, and puts every
 attached device on the bonded path by itself.
 
+## What you need before you start
+
+- **A Linux machine to be the gateway.** This is the one piece people are
+  usually missing. It is an ordinary computer, not an appliance and not
+  something you flash onto hardware: a spare laptop or desktop running Ubuntu
+  or Debian is ideal, and a Raspberry Pi 4 or 5 is enough. There is no Windows
+  or macOS build, because the gateway programs `nftables`, policy routing and a
+  TUN device directly.
+- **Two internet connections that can be live on that machine at once.**
+- **A VPS**, only if you want a single connection to use both links at the same
+  time. Without one you still get failover and per-connection balancing.
+
+You do **not** need to install anything on your router, and you cannot: the M7
+Pro runs NETGEAR's firmware and cannot be reflashed. turbobond configures it
+over the network, through the same web admin interface you log into yourself.
+There is nothing to install on a cable modem either.
+
+There is also no mobile or desktop app to download. The app *is* the web page
+the gateway serves at `http://<gateway>:8088`, which you open in any browser on
+any device.
+
 ## How the pieces fit together
 
 Three machines have three different jobs, and almost every setup problem comes
@@ -44,6 +65,13 @@ other way:
 Run `turbobond links` after installing to see what the gateway can actually
 see. Anything listed there is a link the bond can use. This is also the honest
 check on whether bonding is doing anything for you: one entry means it is not.
+
+The simplest working setup is one machine: install on a Linux laptop, connect
+its Wi-Fi to the router, plug a phone in over USB tethering, and that laptop's
+own traffic is bonded across both. Nothing else on the network changes, and
+nothing else has to be configured. Sharing the bonded connection with the rest
+of your devices is the `lan` stage on top of that, and it can be turned off
+with `lan.enabled: false` if you only want to cover the one machine.
 
 Congested Wi-Fi is exactly the case bonding handles well. When the neighbours
 saturate the shared channel, the health probes see the latency and loss climb,
