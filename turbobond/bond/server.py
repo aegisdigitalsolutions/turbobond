@@ -140,6 +140,7 @@ class ConcentratorServer:
         self._tasks: list[asyncio.Task[None]] = []
         self._stop = asyncio.Event()
         self._rejected = 0
+        self._rejected_sources: set[str] = set()
         self._firewall_rules: list[list[str]] = []
 
     # --------------------------------------------------------------- lifecycle
@@ -242,6 +243,7 @@ class ConcentratorServer:
         frame = decode_frame(self.sealer, data)
         if frame is None:
             self._rejected += 1
+            self._note_rejection(addr)
             return
 
         session = self.sessions.get(frame.session_id)
@@ -374,6 +376,26 @@ class ConcentratorServer:
                 if not session.links:
                     log.info("session %08x expired", session_id)
                     self.sessions.pop(session_id, None)
+
+    def _note_rejection(self, addr: tuple[str, int]) -> None:
+        """Say once, per source, that a datagram arrived but did not authenticate.
+
+        Rejects are otherwise invisible: unauthenticated datagrams are dropped
+        without a reply, so a client using the wrong key looks exactly like a
+        client whose packets never arrive, and the usual next step is to go
+        hunting through firewalls that were never the problem. One line naming
+        the source separates the two.
+        """
+
+        if addr[0] in self._rejected_sources:
+            return
+        self._rejected_sources.add(addr[0])
+        log.warning(
+            "datagram from %s:%d failed to authenticate: it reached this server, "
+            "so the port is open, but the pre-shared key does not match the one "
+            "installed here. Check it with: sudo turbobond-server --pairing",
+            *addr,
+        )
 
     def snapshot(self) -> dict[str, Any]:
         return {

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 
 import pytest
 from helpers import build_ipv4, make_link
@@ -187,6 +188,35 @@ class TestSecurity:
 
         assert concentrator._rejected > before
         assert concentrator.device.drain_for_test() == []
+
+    async def test_a_key_mismatch_is_logged_once_per_source(
+        self, concentrator: ConcentratorServer, caplog
+    ) -> None:
+        """Rejects are silent on the wire, so the log is the only place a wrong
+        key can be told apart from a blocked port."""
+
+        from turbobond.bond.protocol import FrameType, encode_frame
+        from turbobond.util.crypto import Sealer
+
+        forged = encode_frame(
+            Sealer.from_psk(generate_psk()),
+            frame_type=FrameType.HANDSHAKE,
+            session_id=0xBBBB,
+            link_id=1,
+            counter=1,
+            seq=0,
+            payload=b"",
+        )
+
+        with caplog.at_level(logging.WARNING, logger="turbobond.bond.server"):
+            concentrator.handle_datagram(forged, ("198.51.100.7", 40000))
+            concentrator.handle_datagram(forged, ("198.51.100.7", 40001))
+            concentrator.handle_datagram(forged, ("198.51.100.8", 40002))
+
+        warnings = [r for r in caplog.records if "failed to authenticate" in r.message]
+        assert len(warnings) == 2, "one line per source, not one per datagram"
+        assert "198.51.100.7" in warnings[0].getMessage()
+        assert "--pairing" in warnings[0].getMessage()
 
     async def test_a_replayed_datagram_is_dropped(
         self, concentrator: ConcentratorServer, tunnel: BondingTunnel

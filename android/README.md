@@ -63,6 +63,38 @@ video-call protocols do not.
 Covering every device on the network including UDP, with nothing to configure
 per device, is what the Linux gateway does.
 
+## When it does not connect
+
+The app reaches the concentrator *before* it takes over the phone's traffic,
+and only brings the interface up once the server has answered. A bond that
+cannot form therefore leaves the connection alone and says why, rather than
+installing a default route into a tunnel with no working far end — which
+presents as the phone losing the internet outright, with nothing on screen to
+explain it.
+
+| What it says | What it means |
+| --- | --- |
+| `No reply from HOST:PORT` | Datagrams left the phone and nothing came back. Either UDP is blocked before it reaches the server, or the server is not running. |
+| `Bad pre-shared key` | The key is not 64 hex characters. Nothing was sent. |
+| `Cannot find HOST` | The host did not resolve. Use the server's IP address. |
+| `No usable network` | Neither WiFi nor cellular offered a usable link. |
+| `Server stopped responding` | The bond was up and went silent, so it was released to give the phone its connection back. |
+
+`No reply` is the ambiguous one, because a wrong key looks identical from the
+phone: unauthenticated datagrams are dropped without a reply. The server tells
+the two apart. Watch it while you press Connect:
+
+```bash
+sudo journalctl -u turbobond-concentrator -f
+```
+
+A datagram that arrives but does not authenticate logs `failed to authenticate`
+and names the source, which means the port is open and the key is wrong — read
+the real one back with `sudo turbobond-server --pairing`. Complete silence
+means nothing arrived at all, so the traffic is being dropped before it gets
+there: check the cloud firewall first, since it sits outside the machine and
+the installer cannot open it.
+
 ## What you do not have to configure
 
 The app never signs in to your router. To it, the router is just a WiFi network
