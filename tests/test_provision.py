@@ -211,6 +211,107 @@ class TestFirewallRuleLifecycle:
         assert srv._firewall_rules == []
 
 
+class TestInstalledSettings:
+    """The key exists only on the server, so reading it back has to work."""
+
+    def test_reads_back_what_was_written(self, settings, tmp_path, monkeypatch):
+        unit = tmp_path / "unit.service"
+        monkeypatch.setattr(provision, "UNIT_PATH", unit)
+        unit.write_text(settings.unit_text())
+
+        found = provision.installed_settings()
+
+        assert found is not None
+        assert found.psk == settings.psk
+        assert found.port == settings.port
+
+    def test_reads_back_a_non_default_port_and_addresses(self, tmp_path, monkeypatch):
+        unit = tmp_path / "unit.service"
+        monkeypatch.setattr(provision, "UNIT_PATH", unit)
+        unit.write_text(
+            provision.ConcentratorSettings(
+                psk="ff" * 32, port=9999, server_ip="10.9.0.1", peer_ip="10.9.0.2"
+            ).unit_text()
+        )
+
+        found = provision.installed_settings()
+
+        assert found is not None
+        assert found.port == 9999
+        assert found.server_ip == "10.9.0.1"
+        assert found.peer_ip == "10.9.0.2"
+
+    def test_returns_nothing_when_not_installed(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(provision, "UNIT_PATH", tmp_path / "absent.service")
+        assert provision.installed_settings() is None
+
+    def test_returns_nothing_when_the_unit_holds_no_key(self, tmp_path, monkeypatch):
+        unit = tmp_path / "unit.service"
+        monkeypatch.setattr(provision, "UNIT_PATH", unit)
+        unit.write_text("[Service]\nExecStart=/usr/local/bin/turbobond-server\n")
+
+        assert provision.installed_settings() is None
+
+
+class TestPairingCommand:
+    def test_prints_the_installed_values(self, settings, tmp_path, monkeypatch, capsys):
+        from turbobond.bond import server
+
+        unit = tmp_path / "unit.service"
+        monkeypatch.setattr(provision, "UNIT_PATH", unit)
+        monkeypatch.setattr(provision, "detect_public_ip", lambda: "203.0.113.9")
+        unit.write_text(settings.unit_text())
+
+        assert server.main(["--pairing"]) == 0
+        out = capsys.readouterr().out
+        assert settings.psk in out
+        assert "203.0.113.9" in out
+
+    def test_says_so_when_nothing_is_installed(self, tmp_path, monkeypatch, capsys):
+        from turbobond.bond import server
+
+        monkeypatch.setattr(provision, "UNIT_PATH", tmp_path / "absent.service")
+
+        assert server.main(["--pairing"]) == 1
+        assert "no installed concentrator" in capsys.readouterr().err
+
+
+class TestReprovisionKeepsTheKey:
+    """Re-running the installer must not silently unpair existing clients."""
+
+    def test_an_existing_key_is_reused(self, tmp_path, monkeypatch, capsys):
+        from turbobond.bond import server
+
+        unit = tmp_path / "unit.service"
+        monkeypatch.setattr(provision, "UNIT_PATH", unit)
+        monkeypatch.setattr(provision, "is_root", lambda: True)
+        monkeypatch.setattr(provision, "provision_host", lambda s: [])
+        monkeypatch.setattr(provision, "open_firewall", lambda p: "")
+        monkeypatch.setattr(provision, "detect_public_ip", lambda: "")
+        unit.write_text(provision.ConcentratorSettings(psk="1a" * 32).unit_text())
+
+        server.main(["--provision"])
+
+        assert "1a" * 32 in capsys.readouterr().out
+
+    def test_an_explicit_key_overrides_the_installed_one(self, tmp_path, monkeypatch, capsys):
+        from turbobond.bond import server
+
+        unit = tmp_path / "unit.service"
+        monkeypatch.setattr(provision, "UNIT_PATH", unit)
+        monkeypatch.setattr(provision, "is_root", lambda: True)
+        monkeypatch.setattr(provision, "provision_host", lambda s: [])
+        monkeypatch.setattr(provision, "open_firewall", lambda p: "")
+        monkeypatch.setattr(provision, "detect_public_ip", lambda: "")
+        unit.write_text(provision.ConcentratorSettings(psk="1a" * 32).unit_text())
+
+        server.main(["--provision", "--psk", "2b" * 32])
+
+        out = capsys.readouterr().out
+        assert "2b" * 32 in out
+        assert "1a" * 32 not in out
+
+
 class TestServerCli:
     def test_provision_requires_root(self, monkeypatch, capsys):
         from turbobond.bond import server

@@ -210,7 +210,16 @@ activate. The key is the whole of the trust between the two ends, so move it
 across something private, and treat anyone who has it as able to open a bonded
 session on your server.
 
-To keep a key the gateway already has, pass it instead of generating one:
+To see those three values again later, without regenerating them:
+
+```bash
+sudo turbobond-server --pairing
+```
+
+The key is generated on the server and never leaves it, so the installed unit
+is the only copy. Re-running the installer keeps the key that is already there
+rather than making a new one, which would unpair every client that is already
+configured. Pass `--psk` to set one deliberately:
 
 ```bash
 sudo sh packaging/concentrator-install.sh --psk <hex> --port 5310
