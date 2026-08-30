@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -15,6 +16,9 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from turbobond.errors import ConfigError
+from turbobond.logging_setup import get_logger
+
+log = get_logger("config")
 
 DEFAULT_CONFIG_DIR = Path(os.environ.get("TURBOBOND_CONFIG_DIR", "/etc/turbobond"))
 DEFAULT_STATE_DIR = Path(os.environ.get("TURBOBOND_STATE_DIR", "/var/lib/turbobond"))
@@ -319,6 +323,19 @@ class AppConfig(BaseModel):
             used.add(next_id)
             next_id += 1
 
+    def absorb(self, other: AppConfig) -> None:
+        """Take on another config's values in place.
+
+        The subsystems are handed the sub-models themselves (``SipFirewall``
+        keeps ``cfg.sip``, the shadowsocks manager keeps ``cfg.shadowsocks``,
+        and so on), so rebinding those attributes would leave every one of them
+        reading the settings that were current when it was built. Updating the
+        existing objects instead means a change made in the UI is visible
+        everywhere at once.
+        """
+
+        _absorb_into(self, other, skip={"config_dir", "state_dir", "run_dir"})
+
     def redacted(self) -> dict[str, Any]:
         """Config safe to hand to the UI."""
 
@@ -336,6 +353,39 @@ class AppConfig(BaseModel):
             if node.get(path[-1]):
                 node[path[-1]] = "********"
         return data
+
+
+def ensure_writable_dir(path: Path, *, fallback: str = "turbobond") -> Path:
+    """Return *path*, or a temporary directory when it is not writable.
+
+    ``/run/turbobond`` belongs to root. An unprivileged or dry-run instance
+    still has to put its runtime files somewhere, and losing a whole route
+    because a scratch directory could not be created is the wrong trade.
+    """
+
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        if os.access(path, os.W_OK):
+            return path
+    except OSError as exc:
+        log.debug("cannot use %s: %s", path, exc)
+
+    alternative = Path(tempfile.gettempdir()) / fallback
+    alternative.mkdir(parents=True, exist_ok=True)
+    log.warning("%s is not writable; using %s instead", path, alternative)
+    return alternative
+
+
+def _absorb_into(target: BaseModel, source: BaseModel, *, skip: frozenset[str] | set[str] = frozenset()) -> None:
+    for name in type(target).model_fields:
+        if name in skip:
+            continue
+        incoming = getattr(source, name)
+        current = getattr(target, name)
+        if isinstance(current, BaseModel) and type(current) is type(incoming):
+            _absorb_into(current, incoming)
+        else:
+            setattr(target, name, incoming)
 
 
 def default_config_path(config_dir: Path | None = None) -> Path:

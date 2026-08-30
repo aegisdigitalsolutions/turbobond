@@ -399,6 +399,13 @@ class Supervisor:
         except TurboBondError as exc:
             self._record(Phase.TRANSPORT, False, exc.message, started, degraded=True)
             return
+        except Exception as exc:
+            # The shadow route is the optional one. Whatever went wrong here,
+            # the direct bonded route - the one that carries voice - still has
+            # to come up, so this degrades rather than failing activation.
+            log.exception("the shadow route could not be started")
+            self._record(Phase.TRANSPORT, False, f"shadow route unavailable: {exc}", started, degraded=True)
+            return
         self._record(
             Phase.TRANSPORT,
             True,

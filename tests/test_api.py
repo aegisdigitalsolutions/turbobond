@@ -186,6 +186,28 @@ class TestConfigPatch:
         # Unrelated fields survive the merge.
         assert cfg.sip.wide_open is True
 
+    def test_a_patch_reaches_the_subsystem_holding_the_sub_config(
+        self, signed_in: TestClient, cfg: AppConfig
+    ) -> None:
+        """The firewall keeps ``cfg.sip``, so a UI edit has to land in that object."""
+
+        sip = cfg.sip
+        signed_in.patch("/api/config", json={"values": {"sip": {"rtp_port_start": 20000}}})
+        assert cfg.sip is sip
+        assert sip.rtp_port_start == 20000
+
+    def test_enabling_the_shadow_route_takes_effect_immediately(
+        self, signed_in: TestClient, cfg: AppConfig
+    ) -> None:
+        shadowsocks = cfg.shadowsocks
+        signed_in.patch(
+            "/api/config",
+            json={"values": {"shadowsocks": {"enabled": True, "host": "ss.example.net", "password": "secret"}}},
+        )
+        assert cfg.shadowsocks is shadowsocks
+        assert shadowsocks.usable
+        assert "shadow" in cfg.available_routes()
+
     def test_an_invalid_patch_is_rejected(self, signed_in: TestClient, cfg: AppConfig) -> None:
         response = signed_in.patch(
             "/api/config",

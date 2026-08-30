@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from turbobond.config import (
     RouterConfig,
     ShadowsocksConfig,
     SipConfig,
+    ensure_writable_dir,
     load_config,
     save_config,
 )
@@ -193,3 +195,19 @@ def test_enabled_links_filters_disabled_ones() -> None:
         ]
     )
     assert [link.name for link in cfg.enabled_links()] == ["a"]
+
+
+class TestWritableDirectories:
+    def test_an_unwritable_runtime_directory_falls_back(self, tmp_path: Path) -> None:
+        """An unprivileged run must not lose a route over a scratch directory."""
+
+        blocked = tmp_path / "blocked"
+        blocked.mkdir(mode=0o500)
+        resolved = ensure_writable_dir(blocked / "turbobond", fallback="turbobond-test")
+        assert resolved.is_dir()
+        assert os.access(resolved, os.W_OK)
+
+    def test_a_writable_directory_is_used_as_is(self, tmp_path: Path) -> None:
+        target = tmp_path / "run"
+        assert ensure_writable_dir(target) == target
+        assert target.is_dir()

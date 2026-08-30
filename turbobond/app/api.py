@@ -361,10 +361,7 @@ def create_app(cfg: AppConfig | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=400, detail={"code": "invalid_config", "message": str(exc)}) from exc
 
-        for field_name in updated.model_fields:
-            if field_name in ("config_dir", "state_dir", "run_dir"):
-                continue
-            setattr(cfg, field_name, getattr(updated, field_name))
+        cfg.absorb(updated)
         cfg.assign_table_ids()
         save_config(cfg)
         return cfg.redacted()

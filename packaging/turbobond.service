@@ -1,0 +1,23 @@
+[Unit]
+Description=turbobond multi-WAN bonding gateway
+Documentation=https://github.com/pop3crackle/turbobond
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/turbobond serve
+Restart=always
+RestartSec=3
+# Routing, nftables, TUN and sysctl writes all need real privileges.
+User=root
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+StateDirectory=turbobond
+ConfigurationDirectory=turbobond
+ConfigurationDirectoryMode=0750
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

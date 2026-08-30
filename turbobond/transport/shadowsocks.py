@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from turbobond.config import ShadowsocksConfig
+from turbobond.config import ShadowsocksConfig, ensure_writable_dir
 from turbobond.errors import TransportError
 from turbobond.logging_setup import get_logger
 from turbobond.util import netcheck
@@ -177,7 +177,8 @@ class ShadowsocksManager:
         return data
 
     def write_config(self) -> Path:
-        self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.run_dir = ensure_writable_dir(self.run_dir)
+        self.config_path = self.run_dir / "shadowsocks.json"
         payload = json.dumps(self.build_config(), indent=2)
         if is_dry_run():
             log.info("[dry-run] would write shadowsocks config to %s", self.config_path)
