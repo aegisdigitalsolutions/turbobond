@@ -197,6 +197,16 @@ cd turbobond
 sudo sh packaging/concentrator-install.sh
 ```
 
+For a full "start fresh and repair everything" run on the server, use:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aegisdigitalsolutions/turbobond/main/packaging/revive-concentrator.sh | sudo sh
+```
+
+That path updates system packages, refreshes the checkout, reinstalls the
+concentrator, validates the service, runs `turbobond-server --check`, and
+prints pairing values again.
+
 It finishes by printing the three values that pair the two halves:
 
 ```

@@ -13,6 +13,7 @@ CONFIG_DIR=${TURBOBOND_CONFIG_DIR:-/etc/turbobond}
 
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'warn: %s\n' "$*" >&2; }
 
 [ "$(id -u)" = "0" ] || die "run as root: sudo sh $0"
 
@@ -31,20 +32,20 @@ say "using $PYTHON"
 # ------------------------------------------------------------- system packages
 if command -v apt-get >/dev/null 2>&1; then
     say "installing system packages with apt-get"
-    DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        iproute2 nftables iptables procps iputils-ping python3-venv ca-certificates || true
+        iproute2 nftables iptables procps iputils-ping python3-venv ca-certificates
 elif command -v dnf >/dev/null 2>&1; then
     say "installing system packages with dnf"
-    dnf install -y iproute nftables iptables procps-ng iputils ca-certificates || true
+    dnf install -y iproute nftables iptables procps-ng iputils ca-certificates
 elif command -v apk >/dev/null 2>&1; then
     say "installing system packages with apk"
-    apk add --no-cache iproute2 nftables iptables procps iputils ca-certificates || true
+    apk add --no-cache iproute2 nftables iptables procps iputils ca-certificates
 elif command -v pacman >/dev/null 2>&1; then
     say "installing system packages with pacman"
-    pacman -S --noconfirm iproute2 nftables iptables procps-ng iputils ca-certificates || true
+    pacman -S --noconfirm iproute2 nftables iptables procps-ng iputils ca-certificates
 else
-    say "no known package manager; turbobond will check its dependencies at activation"
+    warn "no known package manager; turbobond will check dependencies at activation"
 fi
 
 modprobe tun 2>/dev/null || true

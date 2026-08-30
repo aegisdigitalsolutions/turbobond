@@ -13,6 +13,12 @@ on:
     paths:
       - "android/**"
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish APK to latest release"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -46,7 +52,7 @@ jobs:
       # A release asset is a plain link, which is what makes it installable
       # straight from a phone's browser. Artifacts need a GitHub login.
       - name: Publish the latest APK
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
