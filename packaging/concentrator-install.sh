@@ -61,6 +61,12 @@ python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1
 # 'python3 -m venv --help' succeeds even on images where ensurepip is missing.
 VENV=/usr/local/lib/turbobond-concentrator
 rm -rf "$VENV"
+
+# setuptools builds in-tree, so installing as root leaves root-owned build/ and
+# egg-info/ behind in the checkout. A later unprivileged install then dies on
+# "could not delete build/...: Permission denied", which reads like a packaging
+# fault rather than a leftover. Clearing them keeps the checkout reusable.
+rm -rf "$HERE/build" "$HERE"/*.egg-info
 if python3 -m venv "$VENV" 2>/dev/null && [ -x "$VENV/bin/pip" ]; then
     "$VENV/bin/pip" install --quiet --upgrade pip
     "$VENV/bin/pip" install --quiet "$HERE"

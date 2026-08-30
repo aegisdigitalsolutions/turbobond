@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -252,6 +253,23 @@ class TestInstalledSettings:
 
         assert provision.installed_settings() is None
 
+    def test_an_unreadable_unit_is_not_reported_as_missing(
+        self, settings, tmp_path, monkeypatch
+    ):
+        """The unit is mode 0600. Calling that "not installed" invites a
+        reinstall, when the caller only needed to be root."""
+
+        unit = tmp_path / "unit.service"
+        monkeypatch.setattr(provision, "UNIT_PATH", unit)
+        unit.write_text(settings.unit_text())
+        unit.chmod(0o000)
+
+        if os.geteuid() == 0:
+            pytest.skip("root reads through the mode bits")
+
+        with pytest.raises(PermissionError):
+            provision.installed_settings()
+
 
 class TestPairingCommand:
     def test_prints_the_installed_values(self, settings, tmp_path, monkeypatch, capsys):
@@ -274,6 +292,24 @@ class TestPairingCommand:
 
         assert server.main(["--pairing"]) == 1
         assert "no installed concentrator" in capsys.readouterr().err
+
+    def test_points_at_sudo_when_the_unit_cannot_be_read(
+        self, settings, tmp_path, monkeypatch, capsys
+    ):
+        from turbobond.bond import server
+
+        unit = tmp_path / "unit.service"
+        monkeypatch.setattr(provision, "UNIT_PATH", unit)
+        unit.write_text(settings.unit_text())
+        unit.chmod(0o000)
+
+        if os.geteuid() == 0:
+            pytest.skip("root reads through the mode bits")
+
+        assert server.main(["--pairing"]) == 1
+        err = capsys.readouterr().err
+        assert "sudo turbobond-server --pairing" in err
+        assert settings.psk not in err
 
 
 class TestReprovisionKeepsTheKey:
@@ -320,9 +356,12 @@ class TestServerCli:
         assert server.main(["--provision"]) == 2
         assert "root" in capsys.readouterr().err
 
-    def test_provision_generates_a_key_when_none_is_given(self, monkeypatch, capsys):
+    def test_provision_generates_a_key_when_none_is_given(
+        self, tmp_path, monkeypatch, capsys
+    ):
         from turbobond.bond import server
 
+        monkeypatch.setattr(provision, "UNIT_PATH", tmp_path / "absent.service")
         monkeypatch.setattr(provision, "is_root", lambda: True)
         monkeypatch.setattr(provision, "provision_host", lambda s: ["ok"])
         monkeypatch.setattr(provision, "open_firewall", lambda p: "ok")
@@ -333,9 +372,10 @@ class TestServerCli:
         assert "203.0.113.7" in out
         assert "Pre-shared key" in out
 
-    def test_provision_keeps_a_key_that_was_supplied(self, monkeypatch, capsys):
+    def test_provision_keeps_a_key_that_was_supplied(self, tmp_path, monkeypatch, capsys):
         from turbobond.bond import server
 
+        monkeypatch.setattr(provision, "UNIT_PATH", tmp_path / "absent.service")
         monkeypatch.setattr(provision, "is_root", lambda: True)
         monkeypatch.setattr(provision, "provision_host", lambda s: [])
         monkeypatch.setattr(provision, "open_firewall", lambda p: "")
@@ -343,3 +383,24 @@ class TestServerCli:
 
         server.main(["--provision", "--psk", "cd" * 32])
         assert "cd" * 32 in capsys.readouterr().out
+
+    def test_provision_refuses_rather_than_regenerate_an_unreadable_key(
+        self, settings, tmp_path, monkeypatch, capsys
+    ):
+        """Treating an unreadable unit as "no key" would mint a new one and
+        unpair every client. Stopping is the recoverable outcome."""
+
+        from turbobond.bond import server
+
+        unit = tmp_path / "unit.service"
+        unit.write_text(settings.unit_text())
+        unit.chmod(0o000)
+        monkeypatch.setattr(provision, "UNIT_PATH", unit)
+        monkeypatch.setattr(provision, "is_root", lambda: True)
+        monkeypatch.setattr(provision, "provision_host", lambda s: [])
+
+        if os.geteuid() == 0:
+            pytest.skip("root reads through the mode bits")
+
+        assert server.main(["--provision"]) == 1
+        assert "could not be read" in capsys.readouterr().err
