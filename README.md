@@ -84,6 +84,12 @@ tar xzf turbobond-concentrator.tar.gz
 cd turbobond-concentrator && sudo sh install.sh
 ```
 
+The bundle carries the turbobond source inside it, so the VPS installs without
+reaching a package index for it and the two halves of the bond are always the
+same version. It creates a virtualenv (Ubuntu 24.04 and Debian 12 refuse
+system-wide pip installs) and pulls only the three libraries the server half
+imports, not the gateway's web stack.
+
 That installer also tunes the VPS for the job, in a
 `/etc/sysctl.d/99-turbobond-concentrator.conf` drop-in that survives reboots:
 forwarding, socket buffers sized to match the client's so neither end caps the

@@ -52,15 +52,17 @@ modprobe tun 2>/dev/null || true
 # ------------------------------------------------------------------- install
 say "installing turbobond into $PREFIX"
 VENV="$PREFIX/lib/turbobond"
-if "$PYTHON" -m venv --help >/dev/null 2>&1; then
-    "$PYTHON" -m venv "$VENV"
+rm -rf "$VENV"
+# Creating one is the only real test: 'python3 -m venv --help' succeeds even on
+# images where ensurepip is missing and creation then fails.
+if "$PYTHON" -m venv "$VENV" 2>/dev/null && [ -x "$VENV/bin/pip" ]; then
     "$VENV/bin/pip" install --quiet --upgrade pip
     "$VENV/bin/pip" install --quiet "$REPO_ROOT"
     ln -sf "$VENV/bin/turbobond" "$PREFIX/bin/turbobond"
     ln -sf "$VENV/bin/turbobond-server" "$PREFIX/bin/turbobond-server"
 else
-    # Some minimal images ship no venv module; fall back to a user-wide install.
     say "python venv is unavailable, installing system-wide"
+    rm -rf "$VENV"
     "$PYTHON" -m pip install --upgrade --break-system-packages "$REPO_ROOT" ||
         "$PYTHON" -m pip install --upgrade "$REPO_ROOT"
 fi

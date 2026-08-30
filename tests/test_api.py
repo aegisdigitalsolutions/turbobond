@@ -223,19 +223,39 @@ class TestDownloads:
         assert response.status_code == 200
 
         with tarfile.open(fileobj=io.BytesIO(response.content), mode="r:gz") as tar:
-            names = sorted(member.name for member in tar.getmembers())
-            assert names == [
-                "turbobond-concentrator/README.md",
-                "turbobond-concentrator/install.sh",
-                "turbobond-concentrator/turbobond-concentrator.service",
-            ]
+            names = {member.name for member in tar.getmembers()}
             service = tar.extractfile("turbobond-concentrator/turbobond-concentrator.service")
             assert service is not None
             body = service.read().decode()
 
+        assert {
+            "turbobond-concentrator/README.md",
+            "turbobond-concentrator/install.sh",
+            "turbobond-concentrator/turbobond-concentrator.service",
+        } <= names
+
         # Pre-paired so the two halves never have to be matched up by hand.
         assert "TURBOBOND_PSK=" in body
         assert "turbobond-server" in body
+
+    def test_the_bundle_carries_its_own_source(self, signed_in: TestClient) -> None:
+        """It has to install on a host that cannot fetch turbobond by name."""
+
+        response = signed_in.get("/api/download/concentrator")
+        with tarfile.open(fileobj=io.BytesIO(response.content), mode="r:gz") as tar:
+            names = {member.name for member in tar.getmembers()}
+            script = tar.extractfile("turbobond-concentrator/install.sh")
+            assert script is not None
+            install_sh = script.read().decode()
+
+        assert "turbobond-concentrator/src/pyproject.toml" in names
+        assert "turbobond-concentrator/src/turbobond/bond/server.py" in names
+        assert "turbobond-concentrator/src/turbobond/util/crypto.py" in names
+        assert not any(name.endswith(".pyc") for name in names)
+
+        # Installed from the bundled tree, never resolved from an index.
+        assert '"$HERE/src"' in install_sh
+        assert "pip install --upgrade turbobond" not in install_sh
 
     def test_the_bundle_tunes_the_kernel_it_is_installed_on(self, signed_in: TestClient) -> None:
         """The far end absorbs every uplink at once; stock limits are too small."""

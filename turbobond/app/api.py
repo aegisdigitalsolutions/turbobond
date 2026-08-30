@@ -496,8 +496,34 @@ def _deep_merge(target: dict[str, Any], patch: dict[str, Any]) -> None:
             target[key] = value
 
 
+#: Everything the server half imports. The web app's dependencies are not
+#: among them, so the concentrator host does not have to carry them.
+CONCENTRATOR_REQUIREMENTS = ("cryptography>=42", "pydantic>=2.6", "PyYAML>=6")
+
+
+def _package_sources() -> dict[str, str]:
+    """The turbobond package itself, for a bundle that installs without a network index."""
+
+    root = Path(__file__).resolve().parent.parent
+    sources: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts or path.suffix == ".pyc":
+            continue
+        try:
+            sources[f"src/turbobond/{path.relative_to(root).as_posix()}"] = path.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+    return sources
+
+
 def _concentrator_bundle(cfg: AppConfig) -> dict[str, str]:
-    """Files that make up the downloadable concentrator package."""
+    """Files that make up the downloadable concentrator package.
+
+    The turbobond source travels inside the bundle. Pulling it from an index
+    instead would mean the concentrator could only be installed from a machine
+    that can reach a published copy of this exact version, which is not a
+    dependency worth having on the far end of your own bond.
+    """
 
     psk = cfg.concentrator.psk_hex
     port = cfg.concentrator.port
@@ -511,17 +537,45 @@ set -eu
 
 echo "Installing the turbobond concentrator..."
 
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
 if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y --no-install-recommends python3 python3-pip iproute2 iptables
+    apt-get install -y --no-install-recommends \\
+        python3 python3-venv python3-pip iproute2 iptables ca-certificates
 elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y python3 python3-pip iproute2 iptables
+    dnf install -y python3 python3-pip iproute2 iptables ca-certificates
 elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache python3 py3-pip iproute2 iptables
+    apk add --no-cache python3 py3-pip iproute2 iptables ca-certificates
 fi
 
-python3 -m pip install --break-system-packages --upgrade turbobond 2>/dev/null \\
-    || python3 -m pip install --upgrade turbobond
+python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' || {{
+    echo "error: the concentrator needs Python 3.11 or newer." >&2
+    exit 1
+}}
+
+# The source travels in this bundle, so there is nothing to fetch by name.
+# Ubuntu 24.04 and Debian 12 refuse system-wide pip installs (PEP 668), hence
+# the virtualenv. Creating one is the only real test that it can be done:
+# 'python3 -m venv --help' succeeds even on images where ensurepip is missing.
+VENV=/usr/local/lib/turbobond-concentrator
+rm -rf "$VENV"
+if python3 -m venv "$VENV" 2>/dev/null && [ -x "$VENV/bin/pip" ]; then
+    "$VENV/bin/pip" install --quiet --upgrade pip
+    "$VENV/bin/pip" install --quiet "$HERE/src"
+    ln -sf "$VENV/bin/turbobond-server" /usr/local/bin/turbobond-server
+else
+    echo "no usable virtualenv; installing system-wide instead"
+    rm -rf "$VENV"
+    python3 -m pip install --break-system-packages "$HERE/src" \\
+        || python3 -m pip install "$HERE/src"
+fi
+
+command -v turbobond-server >/dev/null 2>&1 || {{
+    echo "error: turbobond-server was not installed; see the output above." >&2
+    exit 1
+}}
 
 modprobe tun || true
 
@@ -642,8 +696,37 @@ The pre-shared key in `turbobond-concentrator.service` already matches this
 install. Keep it secret; anyone holding it can open a bonded session.
 """
 
+    requirements = ",\n    ".join(f'"{req}"' for req in CONCENTRATOR_REQUIREMENTS)
+    src_pyproject = f"""[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "turbobond"
+version = "{__version__}"
+description = "turbobond bonding concentrator (server half)"
+requires-python = ">=3.11"
+
+# Only what the server half imports. The gateway's web stack is not needed
+# here, so the concentrator host stays lean.
+dependencies = [
+    {requirements},
+]
+
+[project.scripts]
+turbobond-server = "turbobond.bond.server:main"
+
+[tool.setuptools.packages.find]
+include = ["turbobond*"]
+
+[tool.setuptools.package-data]
+"turbobond.app" = ["web/*"]
+"""
+
     return {
         "install.sh": install_sh,
         "turbobond-concentrator.service": service,
         "README.md": readme,
+        "src/pyproject.toml": src_pyproject,
+        **_package_sources(),
     }
